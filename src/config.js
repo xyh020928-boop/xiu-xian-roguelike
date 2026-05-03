@@ -1,6 +1,6 @@
 // 全局常量与配置
 
-export const GAME_VERSION = 'v0.4.1';
+export const GAME_VERSION = 'v0.4.2';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -86,3 +86,22 @@ export const REALM_SWORD_CONFIG = {
   '元婴期': { speed: 750, range: 680, width: 60, height: 14, color: 0xff6600, count: 3, mpCost: 25 },
   '化神期': { speed: 900, range: 900, width: 80, height: 18, color: 0xff3300, count: 5, mpCost: 35 },
 };
+
+// ==================== 修炼方向系统 ====================
+export const CULTIVATION_PATHS = {
+  tixiu: {
+    name: '体修', desc: '淬炼肉身，以体为剑', color: '#ff6644', icon: '拳',
+    stats: { maxHp: 8, meleeDmg: 0.04, defense: 0.02 },
+  },
+  jianxiu: {
+    name: '剑修', desc: '以气御剑，剑走偏锋', color: '#44aaff', icon: '剑',
+    stats: { maxMp: 6, swordDmg: 0.05, mpRegen: 0.03 },
+  },
+  shenshi: {
+    name: '神识', desc: '开天眼，明万物', color: '#cc44ff', icon: '眼',
+    stats: { critRate: 0.02, critDmg: 0.03, moveSpeed: 1.5 },
+  },
+};
+
+/** 每突破一小层获得的修炼点数 */
+export const POINTS_PER_LAYER = 3;

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { WIDTH, HEIGHT, getRealmName } from '../config.js';
-import { UPGRADE_CONFIG, upgradeCost } from '../utils/helpers.js';
+import { WIDTH, HEIGHT, getRealmName, CULTIVATION_PATHS, POINTS_PER_LAYER } from '../config.js';
+import { calcPlayerStats } from '../utils/helpers.js';
 import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
@@ -90,8 +90,8 @@ export default class HallScene extends Phaser.Scene {
       });
     }
 
-    // ---- 升级按钮区域 ----
-    this.createUpgradeButtons();
+    // ---- 修炼方向分配区域 ----
+    this.createCultivationPanel();
 
     // ---- 底部按钮：进入秘境 & 进入洞府 ----
     this.createEnterButtons();
@@ -125,131 +125,320 @@ export default class HallScene extends Phaser.Scene {
     });
   }
 
-  // ==================== 创建升级按钮 ====================
-  createUpgradeButtons() {
-    const stats = ['maxHp', 'atk', 'mpMax'];
-    const startY = 200;
-    const gap = 120;
+  // ==================== 修炼方向分配面板 ====================
+  createCultivationPanel() {
+    // 初始化修炼数据
+    if (!this.save.cultivation) {
+      this.save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+    }
 
-    stats.forEach((key, i) => {
-      const cfg = UPGRADE_CONFIG[key];
-      const y = startY + i * gap;
-      const panelX = WIDTH / 2 - 210;
-      const panelW = 420;
-      const panelH = 100;
+    this._cultElements = [];   // 所有修炼卡片+属性面板的子元素
+    this._cultCardRefs = {};   // 每张卡片的动态引用（按钮/可更新文本）
+    this._statsElements = [];  // 属性面板文本引用
 
-      // 面板背景
+    // 首次构建
+    this._buildCultivationCards();
+  }
+
+  // ==================== 构建/重建所有修炼卡片与属性面板 ====================
+  _buildCultivationCards() {
+    const pathKeys = ['tixiu', 'jianxiu', 'shenshi'];
+    const cardW = 500;
+    const cardH = 90;
+    const panelX = WIDTH / 2 - cardW / 2;
+    const startY = 140;
+    const cardGap = 12;
+    const FONT = '"Microsoft YaHei","SimHei",sans-serif';
+
+    // ---- 可用点数提示 ----
+    this.cultPointsText = this.add.text(WIDTH / 2, startY - 24, '', {
+      fontSize: '16px', color: '#f0c040',
+      fontFamily: FONT, fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this._cultElements.push(this.cultPointsText);
+
+    pathKeys.forEach((key, i) => {
+      const cfg = CULTIVATION_PATHS[key];
+      const cy = startY + i * (cardH + cardGap);
+      const cardElements = [];
+
+      // --- 卡片背景 ---
       const bg = this.add.graphics();
-      bg.fillStyle(0x1a1a3e, 0.8);
-      bg.fillRoundedRect(panelX, y, panelW, panelH, 10);
-      bg.lineStyle(2, 0x4444aa);
-      bg.strokeRoundedRect(panelX, y, panelW, panelH, 10);
+      bg.fillStyle(0x1a1a3e, 0.7);
+      bg.fillRoundedRect(panelX, cy, cardW, cardH, 8);
+      bg.lineStyle(1.5, Phaser.Display.Color.HexStringToColor(cfg.color).color, 0.6);
+      bg.strokeRoundedRect(panelX, cy, cardW, cardH, 8);
+      cardElements.push(bg);
 
-      // 名称
-      this.add.text(panelX + 20, y + 12, cfg.label, {
-        fontSize: '22px', color: '#f0c040',
-        fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
-        fontStyle: 'bold',
+      // === 左侧区域 (relative x: 15-220) ===
+
+      // 图标文字
+      const iconTxt = this.add.text(panelX + 15, cy + 20, cfg.icon, {
+        fontSize: '24px', color: cfg.color, fontFamily: FONT,
       });
+      cardElements.push(iconTxt);
 
-      // 说明文字（动态更新）
-      const infoText = this.add.text(panelX + 20, y + 42, '', {
-        fontSize: '14px', color: '#cccccc',
-        fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+      // 方向名
+      const nameTxt = this.add.text(panelX + 55, cy + 18, cfg.name, {
+        fontSize: '20px', color: cfg.color, fontFamily: FONT, fontStyle: 'bold',
       });
+      cardElements.push(nameTxt);
 
-      // 花费文字
-      const costText = this.add.text(panelX + 240, y + 42, '', {
-        fontSize: '14px', color: '#ffd700',
-        fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+      // 描述小字
+      const descTxt = this.add.text(panelX + 55, cy + 48, cfg.desc, {
+        fontSize: '11px', color: '#666688', fontFamily: FONT,
       });
+      cardElements.push(descTxt);
 
-      // 购买按钮
-      const btnW = 90;
-      const btnH = 36;
-      const btnX = panelX + panelW - btnW - 20;
-      const btnY = y + panelH / 2 - btnH / 2 + 5;
+      // 倾向进度条背景
+      const tendBarW = 120, tendBarH = 4;
+      const tendX = panelX + 55;
+      const tendY = cy + 68;
+      const tendBg = this.add.graphics();
+      tendBg.fillStyle(0x222244);
+      tendBg.fillRoundedRect(tendX, tendY, tendBarW, tendBarH, 2);
+      cardElements.push(tendBg);
+
+      // 倾向进度条填充
+      const tendFill = this.add.graphics();
+      cardElements.push(tendFill);
+
+      // === 中间区域 (relative x: 230-380) ===
+
+      // 修炼点数
+      const pointsTxt = this.add.text(panelX + 230, cy + 20, '', {
+        fontSize: '12px', color: '#ffffff', fontFamily: FONT,
+      });
+      cardElements.push(pointsTxt);
+
+      // 倾向次数
+      const tendTxt = this.add.text(panelX + 230, cy + 42, '', {
+        fontSize: '12px', color: '#888899', fontFamily: FONT,
+      });
+      cardElements.push(tendTxt);
+
+      // 主要属性加成
+      const attrTxt = this.add.text(panelX + 230, cy + 62, '', {
+        fontSize: '11px', color: '#44ffaa', fontFamily: FONT,
+      });
+      cardElements.push(attrTxt);
+
+      // === 右侧区域 (relative x: 390-480) ===
+
+      // +1点按钮
+      const btnW = 60, btnH = 40;
+      const btnX = panelX + 410;
+      const btnY = cy + 25;
 
       const btnGfx = this.add.graphics();
-      const drawBtn = (color, borderColor) => {
+      const drawBtn = (fill, stroke) => {
         btnGfx.clear();
-        btnGfx.fillStyle(color, 0.9);
+        btnGfx.fillStyle(fill, 0.9);
         btnGfx.fillRoundedRect(btnX, btnY, btnW, btnH, 6);
-        btnGfx.lineStyle(2, borderColor);
+        btnGfx.lineStyle(1.5, stroke);
         btnGfx.strokeRoundedRect(btnX, btnY, btnW, btnH, 6);
       };
-      drawBtn(0x224422, 0x44aa44);
+      drawBtn(0x223344, 0x446688);
+      cardElements.push(btnGfx);
 
-      this.add.text(btnX + btnW / 2, btnY + btnH / 2, '升级', {
-        fontSize: '16px', color: '#ffffff',
-        fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+      const btnLabel = this.add.text(btnX + btnW / 2, btnY + btnH / 2, '+1点', {
+        fontSize: '14px', color: '#aaaaaa', fontFamily: FONT,
       }).setOrigin(0.5);
+      cardElements.push(btnLabel);
 
       const btnZone = this.add.zone(btnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
         .setInteractive({ useHandCursor: true });
+      cardElements.push(btnZone);
+
+      btnZone.on('pointerdown', () => { this.allocatePoint(key); });
 
       // 存储引用
-      this._upgradeRefs = this._upgradeRefs || {};
-      this._upgradeRefs[key] = { infoText, costText, btnGfx, btnZone, bg, drawBtn };
-
-      // 点击事件
-      btnZone.on('pointerdown', () => {
-        this.tryUpgrade(key);
-      });
+      this._cultCardRefs[key] = {
+        tendFill, pointsTxt, tendTxt, attrTxt, btnGfx, btnLabel, drawBtn,
+        tendX, tendY, tendBarW, tendBarH,
+      };
+      this._cultElements.push(...cardElements);
     });
+
+    // ---- 战斗属性面板 ----
+    this._buildStatsPanel();
   }
 
-  // ==================== 尝试升级 ====================
-  tryUpgrade(key) {
-    const cfg = UPGRADE_CONFIG[key];
-    const currentLevel = this.save.upgrades[key];
-    const cost = upgradeCost(key, currentLevel);
+  // ==================== 销毁修炼卡片与属性面板元素 ====================
+  _destroyCultivationElements() {
+    for (const el of this._cultElements) {
+      if (el && el.destroy) el.destroy();
+    }
+    this._cultElements = [];
+    this._cultCardRefs = {};
 
-    if (this.save.lingshi < cost) {
-      // 灵石不足：按钮变红提示
-      const refs = this._upgradeRefs[key];
-      refs.drawBtn(0x442222, 0xff4444);
-      this.time.delayedCall(400, () => {
-        refs.drawBtn(0x224422, 0x44aa44);
-      });
+    for (const el of this._statsElements) {
+      if (el && el.destroy) el.destroy();
+    }
+    this._statsElements = [];
+  }
+
+  // ==================== 战斗属性预览面板（4行×2列网格） ====================
+  _buildStatsPanel() {
+    const panelW = 500;
+    const panelH = 120;
+    const px = WIDTH / 2 - panelW / 2;
+    const py = 140 + 3 * (90 + 12) + 10; // 3张卡片下方
+    const FONT = '"Microsoft YaHei","SimHei",sans-serif';
+    const rowH = 26;
+    const col1X = px + 24;
+    const col2X = px + panelW / 2 + 16;
+
+    // 面板背景
+    const bg = this.add.graphics();
+    bg.fillStyle(0x112233, 0.6);
+    bg.fillRoundedRect(px, py, panelW, panelH, 6);
+    bg.lineStyle(1, 0x334455, 0.5);
+    bg.strokeRoundedRect(px, py, panelW, panelH, 6);
+    this._cultElements.push(bg);
+
+    // 标题
+    const title = this.add.text(px + panelW / 2, py + 8, '── 战斗属性 ──', {
+      fontSize: '13px', color: '#667788', fontFamily: FONT,
+    }).setOrigin(0.5);
+    this._cultElements.push(title);
+
+    const stats = calcPlayerStats(this.save);
+    const labelStyle = { fontSize: '12px', color: '#8899aa', fontFamily: FONT };
+
+    // 辅助函数：判断是否有加成，返回颜色
+    const bonusColor = (hasBonus) => hasBonus ? '#44ffcc' : '#ffffff';
+
+    // 基础值计算
+    const realmBonus = this.save.majorRealmIndex || 0;
+    const c = this.save.cultivation || { tixiu: 0, jianxiu: 0, shenshi: 0 };
+
+    const contentStartY = py + 28;
+
+    // 第1行：生命（左）| 灵力（右）
+    this._addStatLabel(col1X, contentStartY, '生命', labelStyle);
+    this._addStatValue(col1X + 40, contentStartY, stats.maxHp, bonusColor((c.tixiu || 0) > 0 || realmBonus > 0));
+
+    this._addStatLabel(col2X, contentStartY, '灵力', labelStyle);
+    this._addStatValue(col2X + 40, contentStartY, stats.maxMp, bonusColor((c.jianxiu || 0) > 0 || realmBonus > 0));
+
+    // 第2行：近战（左）| 剑气（右）
+    const row2Y = contentStartY + rowH;
+    this._addStatLabel(col1X, row2Y, '近战', labelStyle);
+    this._addStatValue(col1X + 40, row2Y, stats.meleeDmgBonus.toFixed(2) + 'x', bonusColor(stats.meleeDmgBonus > 1));
+
+    this._addStatLabel(col2X, row2Y, '剑气', labelStyle);
+    this._addStatValue(col2X + 40, row2Y, stats.swordDmgBonus.toFixed(2) + 'x', bonusColor(stats.swordDmgBonus > 1));
+
+    // 第3行：防御（左）| 回蓝（右）
+    const row3Y = row2Y + rowH;
+    this._addStatLabel(col1X, row3Y, '防御', labelStyle);
+    this._addStatValue(col1X + 40, row3Y, Math.floor(stats.defense * 100) + '%', bonusColor(stats.defense > 0));
+
+    this._addStatLabel(col2X, row3Y, '回蓝', labelStyle);
+    this._addStatValue(col2X + 40, row3Y, stats.mpRegen.toFixed(1) + '/s', bonusColor(stats.mpRegen > 5));
+
+    // 第4行：暴击（左）| 移速（右）
+    const row4Y = row3Y + rowH;
+    this._addStatLabel(col1X, row4Y, '暴击', labelStyle);
+    this._addStatValue(col1X + 40, row4Y, Math.floor(stats.critRate * 100) + '%', bonusColor(stats.critRate > 0));
+
+    this._addStatLabel(col2X, row4Y, '移速', labelStyle);
+    this._addStatValue(col2X + 40, row4Y, stats.moveSpeed.toString(), bonusColor(stats.moveSpeed > 220));
+  }
+
+  _addStatLabel(x, y, text, style) {
+    const t = this.add.text(x, y, text + '：', style);
+    this._cultElements.push(t);
+  }
+
+  _addStatValue(x, y, text, color) {
+    const t = this.add.text(x, y, text, {
+      fontSize: '12px', color, fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    });
+    this._cultElements.push(t);
+  }
+
+  // ==================== 分配修炼点 ====================
+  allocatePoint(pathKey) {
+    const c = this.save.cultivation;
+    if (!c || c.points <= 0) {
+      const refs = this._cultCardRefs[pathKey];
+      if (refs) {
+        refs.drawBtn(0x442222, 0xff4444);
+        refs.btnLabel.setColor('#ff4444');
+        this.time.delayedCall(400, () => {
+          refs.drawBtn(0x223344, 0x446688);
+          refs.btnLabel.setColor('#aaaaaa');
+        });
+      }
       return;
     }
 
-    // 扣除灵石并升级
-    this.save.lingshi -= cost;
-    this.save.upgrades[key]++;
+    c.points--;
+    c[pathKey] = (c[pathKey] || 0) + 1;
     SaveManager.save(this.slotId, this.save);
     this.refreshUI();
   }
 
   // ==================== 刷新界面 ====================
   refreshUI() {
+    const c = this.save.cultivation || { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+
     // 货币（单行：仙玉在前，灵石在后）
     this.currencyLine.setText(`◇ 仙玉：${this.save.xianyu || 0}      ◈ 灵石：${this.save.lingshi}`);
     // 境界
     this.realmText.setText(`境界：${getRealmName(this.save.majorRealmIndex, this.save.layer)}`);
     // 战绩
     this.children.getByName('stats')?.destroy();
-    const statsText = this.add.text(WIDTH / 2, HEIGHT - 30,
+    this.add.text(WIDTH / 2, HEIGHT - 30,
       `战绩：共历劫 ${this.save.totalRuns} 次，击杀 ${this.save.totalKills} 名妖邪`, {
         fontSize: '14px', color: '#666666',
         fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
       }).setOrigin(0.5).setName('stats');
 
-    // 更新升级面板
-    if (this._upgradeRefs) {
-      for (const [key, refs] of Object.entries(this._upgradeRefs)) {
-        const cfg = UPGRADE_CONFIG[key];
-        const level = this.save.upgrades[key];
-        const cost = upgradeCost(key, level);
-        const base = key === 'atk' ? 10 : 100;
-        const current = base + level * cfg.perLevel;
-        const next = base + (level + 1) * cfg.perLevel;
+    // 销毁旧卡片并重建
+    // 保存 cultPointsText 引用（在 _destroyCultivationElements 中会被销毁）
+    this._destroyCultivationElements();
+    this._buildCultivationCards();
 
-        refs.infoText.setText(`${cfg.desc}：${current} → ${next}（+${cfg.perLevel}）`);
-        refs.costText.setText(`${cost} 枚灵石`);
+    // 更新可用点数文本（重建后重新设置）
+    this.cultPointsText.setText(`可用修炼点：${c.points || 0}  （每突破一层获得 ${POINTS_PER_LAYER} 点）`);
+
+    // 填充每张卡片数据
+    const pathKeys = ['tixiu', 'jianxiu', 'shenshi'];
+    const stats = calcPlayerStats(this.save);
+
+    pathKeys.forEach((key) => {
+      const refs = this._cultCardRefs[key];
+      if (!refs) return;
+      const alloc = c[key] || 0;
+      const tend = c.tendencies?.[key] || 0;
+
+      refs.pointsTxt.setText(`修炼：${alloc} 点`);
+      refs.tendTxt.setText(`倾向：${tend} 次`);
+
+      // 倾向进度条
+      const rawTend = tend % 5;
+      refs.tendFill.clear();
+      if (rawTend > 0) {
+        const cfg = CULTIVATION_PATHS[key];
+        refs.tendFill.fillStyle(Phaser.Display.Color.HexStringToColor(cfg.color).color, 0.8);
+        refs.tendFill.fillRoundedRect(refs.tendX, refs.tendY, (rawTend / 5) * refs.tendBarW, refs.tendBarH, 2);
       }
-    }
+
+      // 主要属性加成
+      let attrText = '';
+      if (key === 'tixiu') attrText = `近战 +${Math.floor((stats.meleeDmgBonus - 1) * 100)}%`;
+      if (key === 'jianxiu') attrText = `剑气 +${Math.floor((stats.swordDmgBonus - 1) * 100)}%`;
+      if (key === 'shenshi') attrText = `暴击 +${Math.floor(stats.critRate * 100)}%`;
+      refs.attrTxt.setText(attrText);
+
+      // 按钮状态
+      const hasPoints = (c.points || 0) > 0;
+      refs.drawBtn(hasPoints ? 0x224433 : 0x223344, hasPoints ? 0x44aa66 : 0x446688);
+      refs.btnLabel.setColor(hasPoints ? '#44ff88' : '#aaaaaa');
+    });
   }
 
   // ==================== 底部按钮：进入秘境 & 机缘阁 & 背包 & 进入洞府 ====================

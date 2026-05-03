@@ -124,6 +124,21 @@ export default class SaveManager {
       lastSaved: null,
       createdAt: Date.now(),
       bag: { slots: Array(60).fill(null) },
+      equipment: {
+        helmet: null,
+        armor: null,
+        legs: null,
+        belt: null,
+        weapon: null,
+        amulet: null,
+      },
+      cultivation: {
+        points: 0,
+        tixiu: 0,
+        jianxiu: 0,
+        shenshi: 0,
+        tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 },
+      },
       activeRelics: [],
     };
   }

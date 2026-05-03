@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, REALMS, REALM_SWORD_CONFIG, getMajorRealmName } from '../config.js';
 import SaveManager from '../utils/SaveManager.js';
+import { calcPlayerStats } from '../utils/helpers.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
 export default class GameScene extends Phaser.Scene {
@@ -137,6 +138,12 @@ export default class GameScene extends Phaser.Scene {
         const sid = this.registry.get('currentSlotId');
         if (s && sid >= 0) {
           s.playtime = (s.playtime || 0) + 30;
+          // 刷新倾向到存档
+          if (this._tendencies) {
+            if (!s.cultivation) s.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+            if (!s.cultivation.tendencies) s.cultivation.tendencies = { tixiu: 0, jianxiu: 0, shenshi: 0 };
+            // 每次只累加增量（不清零，goToScene 时一次性写入）
+          }
           SaveManager.save(sid, s);
           this.showAutoSaveHint();
         }
@@ -196,12 +203,24 @@ export default class GameScene extends Phaser.Scene {
     const save = this.registry.get('currentSave');
     this.slotId = this.registry.get('currentSlotId');
     this.sessionTime = 0;
-    this.playerMaxHP = 100 + save.upgrades.maxHp * 20;
+    // 修炼方向属性计算
+    const stats = calcPlayerStats(save);
+    this.playerMaxHP = stats.maxHp;
     this.playerHP = this.playerMaxHP;
-    this.playerAtk = 10 + save.upgrades.atk * 3;
-    this.playerMaxMP = 100 + save.upgrades.mpMax * 20;
+    this.playerAtk = stats.atk;
+    this.playerMeleeDmgBonus = stats.meleeDmgBonus;
+    this.playerSwordDmgBonus = stats.swordDmgBonus;
+    this.playerDefense = stats.defense;
+    this.playerMaxMP = stats.maxMp;
     this.currentMP = this.playerMaxMP;
+    this.playerMpRegen = stats.mpRegen;
+    this.playerCritRate = stats.critRate;
+    this.playerCritDmg = stats.critDmg;
+    this.moveSpeed = stats.moveSpeed;
     this.currentRealm = getMajorRealmName(save.majorRealmIndex);
+
+    // 倾向变化量（本局，结束后写入 save.cultivation.tendencies）
+    this._tendencies = { tixiu: 0, jianxiu: 0, shenshi: 0 };
 
     // ============ 战斗状态 ============
     this.isInvincible = false;
@@ -221,7 +240,6 @@ export default class GameScene extends Phaser.Scene {
     // MP 闪烁
     this.mpFlashTime = -1000;
 
-    this.moveSpeed = 220;
     this.jumpForce = -580;
 
     // 敌人ID计数器
@@ -245,6 +263,17 @@ export default class GameScene extends Phaser.Scene {
 
   // ==================== 场景跳转 ====================
   goToScene(name, data) {
+    // 将本局倾向写入存档
+    const s = this.registry.get('currentSave');
+    const sid = this.registry.get('currentSlotId');
+    if (s && sid >= 0 && this._tendencies) {
+      if (!s.cultivation) s.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+      if (!s.cultivation.tendencies) s.cultivation.tendencies = { tixiu: 0, jianxiu: 0, shenshi: 0 };
+      s.cultivation.tendencies.tixiu = (s.cultivation.tendencies.tixiu || 0) + this._tendencies.tixiu;
+      s.cultivation.tendencies.jianxiu = (s.cultivation.tendencies.jianxiu || 0) + this._tendencies.jianxiu;
+      s.cultivation.tendencies.shenshi = (s.cultivation.tendencies.shenshi || 0) + this._tendencies.shenshi;
+      SaveManager.save(sid, s);
+    }
     this.tweens.killAll();
     this.time.removeAllEvents();
     if (data) this.scene.start(name, data);
@@ -298,8 +327,8 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    // ---- MP 回复（每秒5%） ----
-    const regenRate = this.playerMaxMP * 0.05;
+    // ---- MP 回复（基于修炼方向） ----
+    const regenRate = this.playerMpRegen;
     this.currentMP = Math.min(this.playerMaxMP, this.currentMP + regenRate * (delta / 1000));
 
     const onGround = this.player.body.blocked.down || this.player.body.touching.down;
@@ -403,7 +432,8 @@ export default class GameScene extends Phaser.Scene {
       if (!enemy || !enemy.sprite || !enemy.sprite.active) continue;
       const eBounds = enemy.sprite.getBounds();
       if (Phaser.Geom.Intersects.RectangleToRectangle(hitBounds, eBounds)) {
-        this.applyDamageToEnemy(enemy, j, this.playerAtk);
+        this.applyDamageToEnemy(enemy, j, Math.floor(this.playerAtk * this.playerMeleeDmgBonus));
+        this._tendencies.tixiu += 1;
       }
     }
   }
@@ -458,7 +488,8 @@ export default class GameScene extends Phaser.Scene {
         }
         const eBounds = enemy.sprite.getBounds();
         if (Phaser.Geom.Intersects.RectangleToRectangle(pBounds, eBounds)) {
-          this.applyDamageToEnemy(enemy, j, this.playerAtk);
+          this.applyDamageToEnemy(enemy, j, Math.floor(this.playerAtk * this.playerSwordDmgBonus));
+          this._tendencies.jianxiu += 1;
           this.projectiles.splice(i, 1);
           p.destroy();
           break;
@@ -467,16 +498,25 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // ==================== 通用伤害处理 ====================
+  // ==================== 通用伤害处理（含暴击） ====================
   applyDamageToEnemy(enemy, enemyIndex, dmg) {
-    enemy.hp -= dmg;
+    let finalDmg = dmg;
+    let isCrit = false;
+
+    if (Math.random() < this.playerCritRate) {
+      finalDmg = Math.floor(dmg * this.playerCritDmg);
+      isCrit = true;
+      this._tendencies.shenshi += 1;
+    }
+
+    enemy.hp -= finalDmg;
 
     if (enemy.sprite && enemy.sprite.active) {
-      enemy.sprite.setTint(0xffffff);
+      enemy.sprite.setTint(isCrit ? 0xff8844 : 0xffffff);
       this.time.delayedCall(80, () => {
         if (enemy.sprite && enemy.sprite.active) enemy.sprite.clearTint();
       });
-      this.spawnDamageNumber(enemy.sprite.x, enemy.sprite.y - 20, dmg, '#ffff00');
+      this.spawnDamageNumber(enemy.sprite.x, enemy.sprite.y - 20, finalDmg, isCrit ? '#ff8844' : '#ffff00');
     }
 
     if (enemy.hp <= 0) {
@@ -594,8 +634,9 @@ export default class GameScene extends Phaser.Scene {
   // ==================== 玩家受伤 ====================
   damagePlayer(amount) {
     if (this.isDead || this.isInvincible) return;
-    this.playerHP -= amount;
-    this.spawnDamageNumber(this.player.x, this.player.y - 30, amount, '#ff4444');
+    const actualDmg = Math.max(1, Math.floor(amount * (1 - this.playerDefense)));
+    this.playerHP -= actualDmg;
+    this.spawnDamageNumber(this.player.x, this.player.y - 30, actualDmg, '#ff4444');
 
     this.isInvincible = true;
     this.tweens.add({

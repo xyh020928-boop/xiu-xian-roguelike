@@ -140,28 +140,26 @@ export function applyCardEffect(card, save) {
       save.activeRelics.push(card);
       return `「${card.name}」已存入法宝栏，进入秘境后生效`;
 
-    // 永久强化（直接写存档）
+    // 永久强化 → 转为修炼点数，由玩家自行分配
     case 'permHp':
-      if (!save.upgrades) save.upgrades = {};
-      save.upgrades.maxHp = (save.upgrades.maxHp || 0) + Math.floor(effect.value / 20);
-      return `「${card.name}」永久最大血量 +${effect.value}`;
+      if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+      save.cultivation.points = (save.cultivation.points || 0) + 1;
+      return `「${card.name}」获得 1 修炼点（血量相关天材地宝）`;
 
     case 'permAtk':
-      if (!save.upgrades) save.upgrades = {};
-      save.upgrades.atk = (save.upgrades.atk || 0) + Math.floor(effect.value / 3);
-      return `「${card.name}」永久攻击力 +${effect.value}`;
+      if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+      save.cultivation.points = (save.cultivation.points || 0) + 1;
+      return `「${card.name}」获得 1 修炼点（攻击相关天材地宝）`;
 
     case 'permMp':
-      if (!save.upgrades) save.upgrades = {};
-      save.upgrades.mpMax = (save.upgrades.mpMax || 0) + Math.floor(effect.value / 20);
-      return `「${card.name}」永久最大灵力 +${effect.value}`;
+      if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+      save.cultivation.points = (save.cultivation.points || 0) + 1;
+      return `「${card.name}」获得 1 修炼点（灵力相关天材地宝）`;
 
     case 'permAll':
-      if (!save.upgrades) save.upgrades = {};
-      save.upgrades.maxHp = (save.upgrades.maxHp || 0) + Math.floor(effect.value / 5);
-      save.upgrades.atk = (save.upgrades.atk || 0) + Math.floor(effect.value / 3);
-      save.upgrades.mpMax = (save.upgrades.mpMax || 0) + Math.floor(effect.value / 5);
-      return `「${card.name}」永久全属性 +${effect.value}`;
+      if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+      save.cultivation.points = (save.cultivation.points || 0) + 2;
+      return `「${card.name}」获得 2 修炼点`;
 
     case 'placeholder':
       return `「${card.name}」已收录，功法效果待后续版本实装`;

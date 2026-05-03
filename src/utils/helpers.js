@@ -2,6 +2,7 @@
 import {
   MAJOR_REALMS, WIDTH, HEIGHT,
   getLayerXPRequired, getRealmName,
+  CULTIVATION_PATHS, POINTS_PER_LAYER,
 } from '../config.js';
 import SaveManager from './SaveManager.js';
 
@@ -75,6 +76,51 @@ export function upgradeCost(statKey, level) {
   return (level + 1) * cfg.costMult;
 }
 
+// ==================== 修炼方向 → 战斗属性计算 ====================
+
+/**
+ * 根据修炼方向分配点数 + 战斗行为倾向 + 境界 计算玩家战斗属性
+ * @param {object} save - 存档对象
+ * @returns {object} 计算后的战斗属性
+ */
+export function calcPlayerStats(save) {
+  const c = save.cultivation || { tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+  const realmBonus = save.majorRealmIndex || 0;
+
+  // 倾向加成：每5点倾向折合1点有效分配（上限：不超过实际分配点数的50%）
+  const maxTendencyBonus = Math.floor(Math.max(c.tixiu, c.jianxiu, c.shenshi) * 0.5);
+  const tixiuTotal = c.tixiu + Math.min(Math.floor((c.tendencies?.tixiu || 0) / 5), maxTendencyBonus);
+  const jianxiuTotal = c.jianxiu + Math.min(Math.floor((c.tendencies?.jianxiu || 0) / 5), maxTendencyBonus);
+  const shenshiTotal = c.shenshi + Math.min(Math.floor((c.tendencies?.shenshi || 0) / 5), maxTendencyBonus);
+
+  // 基于修炼方向点数计算属性
+  const pathCfg = CULTIVATION_PATHS;
+  const baseHP = 100 + realmBonus * 5;
+  const baseAtk = 10 + realmBonus * 1;
+  const baseMP = 100 + realmBonus * 5;
+  const baseMoveSpeed = 220;
+  const baseMpRegen = 5; // 每秒基础回蓝
+
+  const maxHp = baseHP + tixiuTotal * pathCfg.tixiu.stats.maxHp;
+  const atk = baseAtk;
+  const meleeDmgBonus = 1 + tixiuTotal * pathCfg.tixiu.stats.meleeDmg;
+  const defense = tixiuTotal * pathCfg.tixiu.stats.defense;
+  const maxMp = baseMP + jianxiuTotal * pathCfg.jianxiu.stats.maxMp;
+  const swordDmgBonus = 1 + jianxiuTotal * pathCfg.jianxiu.stats.swordDmg;
+  const mpRegen = baseMpRegen + jianxiuTotal * pathCfg.jianxiu.stats.mpRegen;
+  const critRate = shenshiTotal * pathCfg.shenshi.stats.critRate;
+  const critDmg = 1.5 + shenshiTotal * pathCfg.shenshi.stats.critDmg;
+  const moveSpeed = baseMoveSpeed + shenshiTotal * pathCfg.shenshi.stats.moveSpeed;
+
+  return {
+    maxHp, atk, meleeDmgBonus, defense,
+    maxMp, swordDmgBonus, mpRegen,
+    critRate, critDmg, moveSpeed,
+    // 各修炼方向总点数（含倾向加成）
+    tixiuTotal, jianxiuTotal, shenshiTotal,
+  };
+}
+
 // ==================== 境界晋级系统 ====================
 
 /**
@@ -104,10 +150,12 @@ export function checkBreakthrough(scene, save, slotId, refreshFn) {
     return false;
   }
 
-  // 小境界晋级：层数+1
+  // 小境界晋级：层数+1，获得修炼点数
   save.layer += 1;
   save.xiuwei = 0;
   save.xiuweiMax = getLayerXPRequired(save.majorRealmIndex, save.layer);
+  if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+  save.cultivation.points = (save.cultivation.points || 0) + POINTS_PER_LAYER;
   SaveManager.save(slotId, save);
 
   showLayerUpMsg(scene, save, refreshFn);
@@ -261,6 +309,8 @@ function showMajorBreakthroughPopup(scene, save, slotId, refreshFn) {
         save.xiuwei = 0;
         save.xiuweiMax = getLayerXPRequired(save.majorRealmIndex, 1);
         save.peakUnlocked = false;
+        if (!save.cultivation) save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
+        save.cultivation.points = (save.cultivation.points || 0) + POINTS_PER_LAYER;
         SaveManager.save(slotId, save);
 
         const newName = getRealmName(save.majorRealmIndex, save.layer);
