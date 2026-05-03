@@ -80,7 +80,7 @@ export default class PauseMenu {
 
   // ==================== 主菜单面板 ====================
   _buildMainMenu() {
-    const btnCount = this.showRestart ? 6 : 5;
+    const btnCount = (this.showRestart ? 6 : 5) + (this.scene.scene.key !== 'GameScene' ? 1 : 0);
     const contentH = 30 + 20 + 12 + btnCount * 48 - 14;
     const panelH = contentH + 50;
     const px = (WIDTH - PANEL_W) / 2;
@@ -184,6 +184,16 @@ export default class PauseMenu {
     this._mainElements.push(hallBtn);
     btnIdx++;
 
+    // 炼丹房（仅非战斗场景显示）
+    if (!isGameScene) {
+      const alchemyBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
+        '炼丹房', '#ff8844', '#2a1a1a', () => {
+          this.scene.scene.start('AlchemyScene');
+        });
+      this._mainElements.push(alchemyBtn);
+      btnIdx++;
+    }
+
     // 返回主菜单
     const menuBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
       '返回主菜单', '#ff8844', '#2a2a2a', () => {
@@ -196,7 +206,7 @@ export default class PauseMenu {
 
   // ==================== 设置面板 ====================
   _buildSettingsPanel() {
-    const btnCount = this.showRestart ? 6 : 5;
+    const btnCount = (this.showRestart ? 6 : 5) + (this.scene.scene.key !== 'GameScene' ? 1 : 0);
     const contentH = 30 + 20 + 12 + btnCount * 48 - 14;
     const panelH = contentH + 50;
     const px = (WIDTH - PANEL_W) / 2;

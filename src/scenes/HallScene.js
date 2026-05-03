@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
-import { WIDTH, HEIGHT, getRealmName, CULTIVATION_PATHS, POINTS_PER_LAYER } from '../config.js';
+import { WIDTH, HEIGHT, getRealmName, CULTIVATION_PATHS, HERBS } from '../config.js';
 import { calcPlayerStats } from '../utils/helpers.js';
 import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
+import CultivationPanel from '../ui/CultivationPanel.js';
+import StatsPanel from '../ui/StatsPanel.js';
 
 export default class HallScene extends Phaser.Scene {
   constructor() {
@@ -52,7 +54,7 @@ export default class HallScene extends Phaser.Scene {
     // ---- 左下角测试按钮：获得10仙玉 ----
     const testBtnW = 140, testBtnH = 20;
     const testBtnX = 24;
-    const testBtnY = HEIGHT - 32;
+    const testBtnY = HEIGHT - 52;
     const testGfx = this.add.graphics();
     testGfx.fillStyle(0x111111, 0.3);
     testGfx.fillRoundedRect(testBtnX, testBtnY, testBtnW, testBtnH, 3);
@@ -64,6 +66,27 @@ export default class HallScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     testZone.on('pointerdown', () => {
       this.save.xianyu = (this.save.xianyu || 0) + 10;
+      SaveManager.save(this.slotId, this.save);
+      this.refreshUI();
+    });
+
+    // ---- 获得草药×3 (测试用) ----
+    const herbBtnX = 24;
+    const herbBtnY = HEIGHT - 24;
+    const herbGfx = this.add.graphics();
+    herbGfx.fillStyle(0x111111, 0.3);
+    herbGfx.fillRoundedRect(herbBtnX, herbBtnY, testBtnW, testBtnH, 3);
+    this.add.text(herbBtnX + testBtnW / 2, herbBtnY + testBtnH / 2, '获得草药×3 (测试用)', {
+      fontSize: '12px', color: '#445544',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(0.5);
+    const herbZone = this.add.zone(herbBtnX + testBtnW / 2, herbBtnY + testBtnH / 2, testBtnW, testBtnH)
+      .setInteractive({ useHandCursor: true });
+    herbZone.on('pointerdown', () => {
+      if (!this.save.herbs) this.save.herbs = {};
+      Object.keys(HERBS).forEach(key => {
+        this.save.herbs[key] = (this.save.herbs[key] || 0) + 2;
+      });
       SaveManager.save(this.slotId, this.save);
       this.refreshUI();
     });
@@ -90,8 +113,22 @@ export default class HallScene extends Phaser.Scene {
       });
     }
 
+    // ---- 创建共享上下文供模块使用 ----
+    const hallData = {
+      save: this.save,
+      slotId: this.slotId,
+      _cultElements: [],
+      _cultCardRefs: {},
+      _statsElements: [],
+      buildStatsPanel: () => this.statsPanel.buildPanel(),
+      refreshUI: () => this.refreshUI(),
+    };
+
+    this.cultPanel = new CultivationPanel(this, hallData);
+    this.statsPanel = new StatsPanel(this, hallData);
+
     // ---- 修炼方向分配区域 ----
-    this.createCultivationPanel();
+    this.cultPanel.createPanel();
 
     // ---- 底部按钮：进入秘境 & 进入洞府 ----
     this.createEnterButtons();
@@ -125,262 +162,6 @@ export default class HallScene extends Phaser.Scene {
     });
   }
 
-  // ==================== 修炼方向分配面板 ====================
-  createCultivationPanel() {
-    // 初始化修炼数据
-    if (!this.save.cultivation) {
-      this.save.cultivation = { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
-    }
-
-    this._cultElements = [];   // 所有修炼卡片+属性面板的子元素
-    this._cultCardRefs = {};   // 每张卡片的动态引用（按钮/可更新文本）
-    this._statsElements = [];  // 属性面板文本引用
-
-    // 首次构建
-    this._buildCultivationCards();
-  }
-
-  // ==================== 构建/重建所有修炼卡片与属性面板 ====================
-  _buildCultivationCards() {
-    const pathKeys = ['tixiu', 'jianxiu', 'shenshi'];
-    const cardW = 500;
-    const cardH = 90;
-    const panelX = WIDTH / 2 - cardW / 2;
-    const startY = 140;
-    const cardGap = 12;
-    const FONT = '"Microsoft YaHei","SimHei",sans-serif';
-
-    // ---- 可用点数提示 ----
-    this.cultPointsText = this.add.text(WIDTH / 2, startY - 24, '', {
-      fontSize: '16px', color: '#f0c040',
-      fontFamily: FONT, fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this._cultElements.push(this.cultPointsText);
-
-    pathKeys.forEach((key, i) => {
-      const cfg = CULTIVATION_PATHS[key];
-      const cy = startY + i * (cardH + cardGap);
-      const cardElements = [];
-
-      // --- 卡片背景 ---
-      const bg = this.add.graphics();
-      bg.fillStyle(0x1a1a3e, 0.7);
-      bg.fillRoundedRect(panelX, cy, cardW, cardH, 8);
-      bg.lineStyle(1.5, Phaser.Display.Color.HexStringToColor(cfg.color).color, 0.6);
-      bg.strokeRoundedRect(panelX, cy, cardW, cardH, 8);
-      cardElements.push(bg);
-
-      // === 左侧区域 (relative x: 15-220) ===
-
-      // 图标文字
-      const iconTxt = this.add.text(panelX + 15, cy + 20, cfg.icon, {
-        fontSize: '24px', color: cfg.color, fontFamily: FONT,
-      });
-      cardElements.push(iconTxt);
-
-      // 方向名
-      const nameTxt = this.add.text(panelX + 55, cy + 18, cfg.name, {
-        fontSize: '20px', color: cfg.color, fontFamily: FONT, fontStyle: 'bold',
-      });
-      cardElements.push(nameTxt);
-
-      // 描述小字
-      const descTxt = this.add.text(panelX + 55, cy + 48, cfg.desc, {
-        fontSize: '11px', color: '#666688', fontFamily: FONT,
-      });
-      cardElements.push(descTxt);
-
-      // 倾向进度条背景
-      const tendBarW = 120, tendBarH = 4;
-      const tendX = panelX + 55;
-      const tendY = cy + 68;
-      const tendBg = this.add.graphics();
-      tendBg.fillStyle(0x222244);
-      tendBg.fillRoundedRect(tendX, tendY, tendBarW, tendBarH, 2);
-      cardElements.push(tendBg);
-
-      // 倾向进度条填充
-      const tendFill = this.add.graphics();
-      cardElements.push(tendFill);
-
-      // === 中间区域 (relative x: 230-380) ===
-
-      // 修炼点数
-      const pointsTxt = this.add.text(panelX + 230, cy + 20, '', {
-        fontSize: '12px', color: '#ffffff', fontFamily: FONT,
-      });
-      cardElements.push(pointsTxt);
-
-      // 倾向次数
-      const tendTxt = this.add.text(panelX + 230, cy + 42, '', {
-        fontSize: '12px', color: '#888899', fontFamily: FONT,
-      });
-      cardElements.push(tendTxt);
-
-      // 主要属性加成
-      const attrTxt = this.add.text(panelX + 230, cy + 62, '', {
-        fontSize: '11px', color: '#44ffaa', fontFamily: FONT,
-      });
-      cardElements.push(attrTxt);
-
-      // === 右侧区域 (relative x: 390-480) ===
-
-      // +1点按钮
-      const btnW = 60, btnH = 40;
-      const btnX = panelX + 410;
-      const btnY = cy + 25;
-
-      const btnGfx = this.add.graphics();
-      const drawBtn = (fill, stroke) => {
-        btnGfx.clear();
-        btnGfx.fillStyle(fill, 0.9);
-        btnGfx.fillRoundedRect(btnX, btnY, btnW, btnH, 6);
-        btnGfx.lineStyle(1.5, stroke);
-        btnGfx.strokeRoundedRect(btnX, btnY, btnW, btnH, 6);
-      };
-      drawBtn(0x223344, 0x446688);
-      cardElements.push(btnGfx);
-
-      const btnLabel = this.add.text(btnX + btnW / 2, btnY + btnH / 2, '+1点', {
-        fontSize: '14px', color: '#aaaaaa', fontFamily: FONT,
-      }).setOrigin(0.5);
-      cardElements.push(btnLabel);
-
-      const btnZone = this.add.zone(btnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
-        .setInteractive({ useHandCursor: true });
-      cardElements.push(btnZone);
-
-      btnZone.on('pointerdown', () => { this.allocatePoint(key); });
-
-      // 存储引用
-      this._cultCardRefs[key] = {
-        tendFill, pointsTxt, tendTxt, attrTxt, btnGfx, btnLabel, drawBtn,
-        tendX, tendY, tendBarW, tendBarH,
-      };
-      this._cultElements.push(...cardElements);
-    });
-
-    // ---- 战斗属性面板 ----
-    this._buildStatsPanel();
-  }
-
-  // ==================== 销毁修炼卡片与属性面板元素 ====================
-  _destroyCultivationElements() {
-    for (const el of this._cultElements) {
-      if (el && el.destroy) el.destroy();
-    }
-    this._cultElements = [];
-    this._cultCardRefs = {};
-
-    for (const el of this._statsElements) {
-      if (el && el.destroy) el.destroy();
-    }
-    this._statsElements = [];
-  }
-
-  // ==================== 战斗属性预览面板（4行×2列网格） ====================
-  _buildStatsPanel() {
-    const panelW = 500;
-    const panelH = 120;
-    const px = WIDTH / 2 - panelW / 2;
-    const py = 140 + 3 * (90 + 12) + 10; // 3张卡片下方
-    const FONT = '"Microsoft YaHei","SimHei",sans-serif';
-    const rowH = 26;
-    const col1X = px + 24;
-    const col2X = px + panelW / 2 + 16;
-
-    // 面板背景
-    const bg = this.add.graphics();
-    bg.fillStyle(0x112233, 0.6);
-    bg.fillRoundedRect(px, py, panelW, panelH, 6);
-    bg.lineStyle(1, 0x334455, 0.5);
-    bg.strokeRoundedRect(px, py, panelW, panelH, 6);
-    this._cultElements.push(bg);
-
-    // 标题
-    const title = this.add.text(px + panelW / 2, py + 8, '── 战斗属性 ──', {
-      fontSize: '13px', color: '#667788', fontFamily: FONT,
-    }).setOrigin(0.5);
-    this._cultElements.push(title);
-
-    const stats = calcPlayerStats(this.save);
-    const labelStyle = { fontSize: '12px', color: '#8899aa', fontFamily: FONT };
-
-    // 辅助函数：判断是否有加成，返回颜色
-    const bonusColor = (hasBonus) => hasBonus ? '#44ffcc' : '#ffffff';
-
-    // 基础值计算
-    const realmBonus = this.save.majorRealmIndex || 0;
-    const c = this.save.cultivation || { tixiu: 0, jianxiu: 0, shenshi: 0 };
-
-    const contentStartY = py + 28;
-
-    // 第1行：生命（左）| 灵力（右）
-    this._addStatLabel(col1X, contentStartY, '生命', labelStyle);
-    this._addStatValue(col1X + 40, contentStartY, stats.maxHp, bonusColor((c.tixiu || 0) > 0 || realmBonus > 0));
-
-    this._addStatLabel(col2X, contentStartY, '灵力', labelStyle);
-    this._addStatValue(col2X + 40, contentStartY, stats.maxMp, bonusColor((c.jianxiu || 0) > 0 || realmBonus > 0));
-
-    // 第2行：近战（左）| 剑气（右）
-    const row2Y = contentStartY + rowH;
-    this._addStatLabel(col1X, row2Y, '近战', labelStyle);
-    this._addStatValue(col1X + 40, row2Y, stats.meleeDmgBonus.toFixed(2) + 'x', bonusColor(stats.meleeDmgBonus > 1));
-
-    this._addStatLabel(col2X, row2Y, '剑气', labelStyle);
-    this._addStatValue(col2X + 40, row2Y, stats.swordDmgBonus.toFixed(2) + 'x', bonusColor(stats.swordDmgBonus > 1));
-
-    // 第3行：防御（左）| 回蓝（右）
-    const row3Y = row2Y + rowH;
-    this._addStatLabel(col1X, row3Y, '防御', labelStyle);
-    this._addStatValue(col1X + 40, row3Y, Math.floor(stats.defense * 100) + '%', bonusColor(stats.defense > 0));
-
-    this._addStatLabel(col2X, row3Y, '回蓝', labelStyle);
-    this._addStatValue(col2X + 40, row3Y, stats.mpRegen.toFixed(1) + '/s', bonusColor(stats.mpRegen > 5));
-
-    // 第4行：暴击（左）| 移速（右）
-    const row4Y = row3Y + rowH;
-    this._addStatLabel(col1X, row4Y, '暴击', labelStyle);
-    this._addStatValue(col1X + 40, row4Y, Math.floor(stats.critRate * 100) + '%', bonusColor(stats.critRate > 0));
-
-    this._addStatLabel(col2X, row4Y, '移速', labelStyle);
-    this._addStatValue(col2X + 40, row4Y, stats.moveSpeed.toString(), bonusColor(stats.moveSpeed > 220));
-  }
-
-  _addStatLabel(x, y, text, style) {
-    const t = this.add.text(x, y, text + '：', style);
-    this._cultElements.push(t);
-  }
-
-  _addStatValue(x, y, text, color) {
-    const t = this.add.text(x, y, text, {
-      fontSize: '12px', color, fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
-    });
-    this._cultElements.push(t);
-  }
-
-  // ==================== 分配修炼点 ====================
-  allocatePoint(pathKey) {
-    const c = this.save.cultivation;
-    if (!c || c.points <= 0) {
-      const refs = this._cultCardRefs[pathKey];
-      if (refs) {
-        refs.drawBtn(0x442222, 0xff4444);
-        refs.btnLabel.setColor('#ff4444');
-        this.time.delayedCall(400, () => {
-          refs.drawBtn(0x223344, 0x446688);
-          refs.btnLabel.setColor('#aaaaaa');
-        });
-      }
-      return;
-    }
-
-    c.points--;
-    c[pathKey] = (c[pathKey] || 0) + 1;
-    SaveManager.save(this.slotId, this.save);
-    this.refreshUI();
-  }
-
   // ==================== 刷新界面 ====================
   refreshUI() {
     const c = this.save.cultivation || { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
@@ -398,19 +179,25 @@ export default class HallScene extends Phaser.Scene {
       }).setOrigin(0.5).setName('stats');
 
     // 销毁旧卡片并重建
-    // 保存 cultPointsText 引用（在 _destroyCultivationElements 中会被销毁）
-    this._destroyCultivationElements();
-    this._buildCultivationCards();
+    // 保存 cultPointsText 引用（在 destroyElements 中会被销毁）
+    this.cultPanel.destroyElements();
+    this.cultPanel.buildCards();
 
     // 更新可用点数文本（重建后重新设置）
-    this.cultPointsText.setText(`可用修炼点：${c.points || 0}  （每突破一层获得 ${POINTS_PER_LAYER} 点）`);
+    // 注：cultPointsText 在 buildCards 中被重新创建，这里需要通过 _cultElements 找到它
+    const pointsText = this.cultPanel.hall._cultElements.find(el =>
+      el && el.text != null && typeof el.setText === 'function'
+    );
+    if (pointsText) {
+      pointsText.setText(`可用修炼点：${c.points || 0}  （每突破一层获得 3 点）`);
+    }
 
     // 填充每张卡片数据
     const pathKeys = ['tixiu', 'jianxiu', 'shenshi'];
     const stats = calcPlayerStats(this.save);
 
     pathKeys.forEach((key) => {
-      const refs = this._cultCardRefs[key];
+      const refs = this.cultPanel.hall._cultCardRefs[key];
       if (!refs) return;
       const alloc = c[key] || 0;
       const tend = c.tendencies?.[key] || 0;
@@ -441,12 +228,12 @@ export default class HallScene extends Phaser.Scene {
     });
   }
 
-  // ==================== 底部按钮：进入秘境 & 机缘阁 & 背包 & 进入洞府 ====================
+  // ==================== 底部按钮：进入秘境 & 机缘阁 & 背包 & 炼丹房 & 进入洞府 ====================
   createEnterButtons() {
-    const btnW = 155;
+    const btnW = 115;
     const btnH = 50;
-    const gap = 20;
-    const totalW = btnW * 4 + gap * 3;
+    const gap = 16;
+    const totalW = btnW * 5 + gap * 4;
     const startX = WIDTH / 2 - totalW / 2;
     const btnY = HEIGHT - 100;
 
@@ -463,7 +250,7 @@ export default class HallScene extends Phaser.Scene {
     drawDungeon(0x1a3a1a, 0x44cc44);
 
     this.add.text(dungeonBtnX + btnW / 2, btnY + btnH / 2, '进入秘境', {
-      fontSize: '22px', color: '#ffffff',
+      fontSize: '18px', color: '#ffffff',
       fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
       fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -489,7 +276,7 @@ export default class HallScene extends Phaser.Scene {
     drawGacha(0x2a1a1a, 0xff9944);
 
     this.add.text(gachaBtnX + btnW / 2, btnY + btnH / 2, '机缘阁', {
-      fontSize: '22px', color: '#ffd700',
+      fontSize: '18px', color: '#ffd700',
       fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
       fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -515,7 +302,7 @@ export default class HallScene extends Phaser.Scene {
     drawBag(0x1a2a1a, 0x44cc88);
 
     this.add.text(bagBtnX + btnW / 2, btnY + btnH / 2, '储物袋', {
-      fontSize: '20px', color: '#44ffaa',
+      fontSize: '16px', color: '#44ffaa',
       fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
       fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -528,8 +315,34 @@ export default class HallScene extends Phaser.Scene {
       this.scene.start('BagScene');
     });
 
+    // ---- 炼丹房 ----
+    const alchemyBtnX = bagBtnX + btnW + gap;
+    const alchemyGfx = this.add.graphics();
+    const drawAlchemy = (fill, stroke) => {
+      alchemyGfx.clear();
+      alchemyGfx.fillStyle(fill, 0.85);
+      alchemyGfx.fillRoundedRect(alchemyBtnX, btnY, btnW, btnH, 10);
+      alchemyGfx.lineStyle(3, stroke);
+      alchemyGfx.strokeRoundedRect(alchemyBtnX, btnY, btnW, btnH, 10);
+    };
+    drawAlchemy(0x2a1a1a, 0xcc6644);
+
+    this.add.text(alchemyBtnX + btnW / 2, btnY + btnH / 2, '炼丹房', {
+      fontSize: '16px', color: '#ff8844',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    const alchemyZone = this.add.zone(alchemyBtnX + btnW / 2, btnY + btnH / 2, btnW, btnH)
+      .setInteractive({ useHandCursor: true });
+    alchemyZone.on('pointerover', () => drawAlchemy(0x3a2a2a, 0xee8866));
+    alchemyZone.on('pointerout', () => drawAlchemy(0x2a1a1a, 0xcc6644));
+    alchemyZone.on('pointerdown', () => {
+      this.scene.start('AlchemyScene');
+    });
+
     // ---- 进入洞府 ----
-    const caveBtnX = bagBtnX + btnW + gap;
+    const caveBtnX = alchemyBtnX + btnW + gap;
     const caveGfx = this.add.graphics();
     const drawCave = (fill, stroke) => {
       caveGfx.clear();
@@ -541,7 +354,7 @@ export default class HallScene extends Phaser.Scene {
     drawCave(0x1a1a3e, 0x4466cc);
 
     this.add.text(caveBtnX + btnW / 2, btnY + btnH / 2, '进入洞府', {
-      fontSize: '22px', color: '#ffffff',
+      fontSize: '16px', color: '#ffffff',
       fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
       fontStyle: 'bold',
     }).setOrigin(0.5);

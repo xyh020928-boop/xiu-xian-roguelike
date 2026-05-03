@@ -140,6 +140,8 @@ export default class SaveManager {
         tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 },
       },
       activeRelics: [],
+      jiYuanBag: { slots: Array(60).fill(null) },
+      permBuffs: { maxHpPct: 0, atkPct: 0, maxHpFlat: 0, atkFlat: 0 },
     };
   }
 

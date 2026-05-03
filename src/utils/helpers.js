@@ -3,6 +3,7 @@ import {
   MAJOR_REALMS, WIDTH, HEIGHT,
   getLayerXPRequired, getRealmName,
   CULTIVATION_PATHS, POINTS_PER_LAYER,
+  MATERIALS, DECOMPOSE_YIELD, ALCHEMY_RECIPES, MAX_STACK_SIZE,
 } from '../config.js';
 import SaveManager from './SaveManager.js';
 
@@ -35,13 +36,15 @@ export function addToBag(save, item) {
     save.bag = { slots: Array(60).fill(null) };
   }
 
-  // 1. 查找是否已有相同 itemId 的格子
+  // 1. 查找是否已有相同 itemId 且未满的格子
   const existIdx = save.bag.slots.findIndex(
-    s => s && s.itemId === item.id
+    s => s && s.itemId === item.id && (s.count || 0) < MAX_STACK_SIZE
   );
   if (existIdx !== -1) {
-    save.bag.slots[existIdx].count += 1;
+    const cur = save.bag.slots[existIdx].count || 0;
+    save.bag.slots[existIdx].count = Math.min(cur + 1, MAX_STACK_SIZE);
     save.bag.slots[existIdx].obtainedAt = Date.now();
+    console.log(`[addToBag] 堆叠slot[${existIdx}] ${cur}→${save.bag.slots[existIdx].count} item=${item.name}`);
     return { success: true, slotIndex: existIdx };
   }
 
@@ -60,6 +63,133 @@ export function addToBag(save, item) {
     obtainedAt: Date.now(),
   };
   return { success: true, slotIndex: emptyIdx };
+}
+
+/**
+ * 批量添加道具（自动处理堆叠和溢出到新格子）
+ * @param {object} save - 存档对象
+ * @param {object} item - 道具数据
+ * @param {number} count - 添加数量
+ * @returns {{ success: boolean, added?: number, reason?: string, results?: object[] }}
+ */
+export function addToBagBatch(save, item, count) {
+  if (!save.bag || !Array.isArray(save.bag.slots)) {
+    save.bag = { slots: Array(60).fill(null) };
+  }
+
+  let remaining = count;
+  const results = [];
+
+  while (remaining > 0) {
+    // 找未满的现有堆叠
+    const existSlot = save.bag.slots.findIndex(
+      s => s && s.itemId === item.id && (s.count || 0) < MAX_STACK_SIZE
+    );
+    if (existSlot !== -1) {
+      const canAdd = MAX_STACK_SIZE - (save.bag.slots[existSlot].count || 0);
+      const adding = Math.min(canAdd, remaining);
+      save.bag.slots[existSlot].count = (save.bag.slots[existSlot].count || 0) + adding;
+      save.bag.slots[existSlot].obtainedAt = Date.now();
+      remaining -= adding;
+      console.log(`[addToBagBatch] 堆叠到slot[${existSlot}] +${adding} → 总计${save.bag.slots[existSlot].count}`);
+      results.push({ slotIndex: existSlot, added: adding });
+      continue;
+    }
+
+    // 新建格子
+    const emptySlot = save.bag.slots.findIndex(s => s === null);
+    if (emptySlot === -1) {
+      console.log(`[addToBagBatch] 背包已满，已放入${count - remaining}/${count}`);
+      return { success: false, added: count - remaining, reason: '储物袋已满', results };
+    }
+
+    const adding = Math.min(MAX_STACK_SIZE, remaining);
+    save.bag.slots[emptySlot] = {
+      itemId: item.id,
+      itemData: item,
+      poolKey: item.poolKey || 'tiancai',
+      count: adding,
+      obtainedAt: Date.now(),
+    };
+    remaining -= adding;
+    console.log(`[addToBagBatch] 新格子slot[${emptySlot}] count=${adding}`);
+    results.push({ slotIndex: emptySlot, added: adding });
+  }
+
+  // ★ DEBUG: 打印当前背包所有非空格子
+  console.log('[addToBagBatch] 背包快照:', save.bag.slots.filter(s => s !== null).map(s => ({ id: s.itemId, name: s.itemData?.name, count: s.count })));
+
+  return { success: true, added: count, results };
+}
+
+/**
+ * 将机缘道具（对局词条）加入机缘背包
+ * @param {object} save - 存档对象
+ * @param {object} item - 机缘道具数据
+ * @returns {{ success: boolean, slotIndex?: number, reason?: string }}
+ */
+export function addJiYuanToBag(save, item) {
+  if (!save.jiYuanBag || !Array.isArray(save.jiYuanBag.slots)) {
+    save.jiYuanBag = { slots: Array(60).fill(null) };
+  }
+
+  // 1. 查找是否已有相同 itemId 且未满的格子
+  const existIdx = save.jiYuanBag.slots.findIndex(
+    s => s && s.itemId === item.id && (s.count || 0) < MAX_STACK_SIZE
+  );
+  if (existIdx !== -1) {
+    const cur = save.jiYuanBag.slots[existIdx].count || 0;
+    save.jiYuanBag.slots[existIdx].count = Math.min(cur + 1, MAX_STACK_SIZE);
+    save.jiYuanBag.slots[existIdx].obtainedAt = Date.now();
+    return { success: true, slotIndex: existIdx };
+  }
+
+  // 2. 找第一个空格
+  const emptyIdx = save.jiYuanBag.slots.findIndex(s => s === null);
+  if (emptyIdx === -1) {
+    return { success: false, reason: '机缘空间已满' };
+  }
+
+  // 3. 放入空格
+  save.jiYuanBag.slots[emptyIdx] = {
+    itemId: item.id,
+    itemData: item,
+    poolKey: item.poolKey || null,
+    count: 1,
+    obtainedAt: Date.now(),
+  };
+  return { success: true, slotIndex: emptyIdx };
+}
+
+/** 在机缘背包中查找道具（用于分解/炼丹时检查材料） */
+export function findJiYuanItem(save, itemId) {
+  if (!save.jiYuanBag || !Array.isArray(save.jiYuanBag.slots)) return -1;
+  return save.jiYuanBag.slots.findIndex(s => s && s.itemId === itemId);
+}
+
+/** 从机缘背包中移除指定数量道具 */
+export function removeJiYuanItem(save, slotIdx, count = 1) {
+  if (!save.jiYuanBag || !Array.isArray(save.jiYuanBag.slots)) return false;
+  const slot = save.jiYuanBag.slots[slotIdx];
+  if (!slot || slot.count < count) return false;
+  slot.count -= count;
+  if (slot.count <= 0) {
+    save.jiYuanBag.slots[slotIdx] = null;
+  }
+  return true;
+}
+
+/** 将材料加入机缘背包 */
+export function addMaterialToJiYuan(save, materialId, count) {
+  const mat = MATERIALS[materialId];
+  if (!mat) return;
+  const item = {
+    id: mat.id, name: mat.name, rarity: mat.rarity, desc: mat.desc,
+    type: 'material', poolKey: 'material',
+  };
+  for (let i = 0; i < count; i++) {
+    addJiYuanToBag(save, item);
+  }
 }
 
 // ==================== 升级配置 ====================
@@ -112,8 +242,13 @@ export function calcPlayerStats(save) {
   const critDmg = 1.5 + shenshiTotal * pathCfg.shenshi.stats.critDmg;
   const moveSpeed = baseMoveSpeed + shenshiTotal * pathCfg.shenshi.stats.moveSpeed;
 
+  // 永久buff加成（炼丹产出）
+  const buffs = save.permBuffs || { maxHpPct: 0, atkPct: 0, maxHpFlat: 0, atkFlat: 0 };
+  const finalMaxHp = Math.floor(maxHp * (1 + (buffs.maxHpPct || 0))) + (buffs.maxHpFlat || 0);
+  const finalAtk = Math.floor(atk * (1 + (buffs.atkPct || 0))) + (buffs.atkFlat || 0);
+
   return {
-    maxHp, atk, meleeDmgBonus, defense,
+    maxHp: finalMaxHp, atk: finalAtk, meleeDmgBonus, defense,
     maxMp, swordDmgBonus, mpRegen,
     critRate, critDmg, moveSpeed,
     // 各修炼方向总点数（含倾向加成）

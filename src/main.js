@@ -10,6 +10,7 @@ import TetrisScene from './scenes/TetrisScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 import GachaScene from './scenes/GachaScene.js';
 import BagScene from './scenes/BagScene.js';
+import AlchemyScene from './scenes/AlchemyScene.js';
 import { WIDTH, HEIGHT } from './config.js';
 
 const config = {
@@ -28,7 +29,7 @@ const config = {
   dom: {
     createContainer: true,
   },
-  scene: [BootScene, SaveSelectScene, MenuScene, HallScene, GameScene, GameOverScene, CaveScene, MeditateScene, TetrisScene, GachaScene, BagScene],
+  scene: [BootScene, SaveSelectScene, MenuScene, HallScene, GameScene, GameOverScene, CaveScene, MeditateScene, TetrisScene, GachaScene, BagScene, AlchemyScene],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
