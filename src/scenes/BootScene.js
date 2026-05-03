@@ -20,7 +20,7 @@ export default class BootScene extends Phaser.Scene {
     this.registry.set('currentSlotId', -1);
 
     this.time.delayedCall(500, () => {
-      this.scene.start('SaveSelectScene');
+      this.scene.start('MenuScene');
     });
   }
 }

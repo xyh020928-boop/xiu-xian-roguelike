@@ -1,6 +1,6 @@
 // 全局常量与配置
 
-export const GAME_VERSION = 'v0.4.0';
+export const GAME_VERSION = 'v0.4.1';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
