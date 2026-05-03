@@ -254,7 +254,7 @@ export default class SaveSelectScene extends Phaser.Scene {
 
     this.registry.set('currentSave', save);
     this.registry.set('currentSlotId', slotId);
-    this.scene.start('MenuScene');
+    this.scene.start('HallScene');
   }
 
   // ==================== 存档详情弹窗（manage模式） ====================
@@ -412,11 +412,10 @@ export default class SaveSelectScene extends Phaser.Scene {
 
   // ==================== 创建新存档 ====================
   _createNewSave(slotId, playerName) {
-    const data = SaveManager.getDefaultSave(slotId, playerName);
-    SaveManager.save(slotId, data);
+    const data = SaveManager.createNew(slotId, playerName);
     this.registry.set('currentSave', data);
     this.registry.set('currentSlotId', slotId);
-    this.scene.start('MenuScene');
+    this.scene.start('HallScene');
   }
 
   // ==================== 删除确认弹窗 ====================

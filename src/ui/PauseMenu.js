@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT } from '../config.js';
 import { loadSettings, saveSettings } from '../utils/settings.js';
+import SaveManager from '../utils/SaveManager.js';
 
 // 面板常量
 const PANEL_W = 360;
@@ -79,7 +80,7 @@ export default class PauseMenu {
 
   // ==================== 主菜单面板 ====================
   _buildMainMenu() {
-    const btnCount = this.showRestart ? 7 : 6;
+    const btnCount = this.showRestart ? 6 : 5;
     const contentH = 30 + 20 + 12 + btnCount * 48 - 14;
     const panelH = contentH + 50;
     const px = (WIDTH - PANEL_W) / 2;
@@ -119,6 +120,7 @@ export default class PauseMenu {
     const btnStartY = py + 88;
     const btnGap = 48;
     let btnIdx = 0;
+    const isGameScene = this.scene.scene.key === 'GameScene';
 
     // 继续
     const continueBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
@@ -126,8 +128,31 @@ export default class PauseMenu {
     this._mainElements.push(continueBtn);
     btnIdx++;
 
-    // 重新开始（仅 GameScene 且必须确认是该场景类型）
-    const isGameScene = this.scene.scene.key === 'GameScene';
+    // 手动保存
+    const saveBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
+      '手动保存', '#44ffaa', '#1a2a1a', () => {
+        const save = this.scene.registry.get('currentSave');
+        const slotId = this.scene.registry.get('currentSlotId');
+        if (save && slotId >= 0) {
+          save.playtime = save.playtime || 0;
+          SaveManager.save(slotId, save);
+          const hint = this.scene.add.text(
+            this.scene.scale.width / 2,
+            this.scene.scale.height / 2 - 60,
+            '✦ 保存成功',
+            { fontSize: '20px', color: '#f0c040', fontFamily: FONT }
+          ).setOrigin(0.5).setDepth(3000);
+          this.scene.tweens.add({
+            targets: hint, alpha: 0, y: hint.y - 30,
+            delay: 800, duration: 600,
+            onComplete: () => hint.destroy()
+          });
+        }
+      });
+    this._mainElements.push(saveBtn);
+    btnIdx++;
+
+    // 重新开始（仅 GameScene）
     if (this.showRestart && isGameScene) {
       const restartBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
         '重新开始', '#ffcc44', '#2a2a1a', () => {
@@ -143,17 +168,6 @@ export default class PauseMenu {
       '设置', '#ffffff', '#2a2a3e', () => this._showSettingsPanel());
     this._mainElements.push(settingsBtn);
     btnIdx++;
-
-    // 打开背包（非战斗场景可直接打开）
-    if (!isGameScene) {
-      const bagBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
-        '打开背包', '#44ffaa', '#1a2a1a', () => {
-          this.hide();
-          this.scene.scene.start('BagScene');
-        });
-      this._mainElements.push(bagBtn);
-      btnIdx++;
-    }
 
     // 返回大厅
     const hallBtn = this._addTextBtn(WIDTH / 2, btnStartY + btnIdx * btnGap,
@@ -178,27 +192,11 @@ export default class PauseMenu {
         });
       });
     this._mainElements.push(menuBtn);
-    btnIdx++;
-
-    // 退出游戏 + 悬停提示
-    const exitY = btnStartY + btnIdx * btnGap;
-    const exitBtn = this._addTextBtn(WIDTH / 2, exitY,
-      '退出游戏', '#ff4444', '#3a1a1a', null);
-    this._mainElements.push(exitBtn);
-
-    const exitTip = this.scene.add.text(WIDTH / 2, exitY + 26, '网页版无法退出，请直接关闭标签页', {
-      fontSize: '12px', color: '#664444', fontFamily: FONT,
-    }).setOrigin(0.5).setVisible(false);
-    this.container.add(exitTip);
-    this._mainElements.push(exitTip);
-
-    exitBtn.on('pointerover', () => { exitTip.setVisible(true); });
-    exitBtn.on('pointerout', () => { exitTip.setVisible(false); });
   }
 
   // ==================== 设置面板 ====================
   _buildSettingsPanel() {
-    const btnCount = this.showRestart ? 7 : 6;
+    const btnCount = this.showRestart ? 6 : 5;
     const contentH = 30 + 20 + 12 + btnCount * 48 - 14;
     const panelH = contentH + 50;
     const px = (WIDTH - PANEL_W) / 2;

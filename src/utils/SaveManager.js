@@ -127,4 +127,11 @@ export default class SaveManager {
       activeRelics: [],
     };
   }
+
+  /** 创建新存档并直接保存到槽位 */
+  static createNew(slotId, playerName = '无名散修') {
+    const data = this.getDefaultSave(slotId, playerName);
+    this.save(slotId, data);
+    return data;
+  }
 }
