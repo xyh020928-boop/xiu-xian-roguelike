@@ -109,6 +109,7 @@ export default class GameScene extends Phaser.Scene {
     this.projectiles = [];
     this.spiritStoneDrops = [];
     this.herbDrops = [];
+    this.groundLingshi = [];   // 地面灵石追踪（战后自动回收用）
 
     // ============ 输入 ============
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -648,13 +649,14 @@ export default class GameScene extends Phaser.Scene {
   // ==================== 主循环 ====================
   update(time, delta) {
     if (this.pauseMenu && this.pauseMenu.visible) return;
-    if (this.gameEnded) return;
     if (this._relicSelectOpen) return;
+    // 非清理阶段的 gameEnded 直接返回（死亡流程由下方 isDead 分支处理）
+    if (this.gameEnded && this.dungeonPhase !== 'cleanup') return;
 
     // 游玩时长累计
     this.sessionTime = (this.sessionTime || 0) + delta / 1000;
 
-    if (this.isDead) {
+    if (this.isDead && this.dungeonPhase !== 'cleanup') {
       if (time - this.deathTime > 2000) {
         this.gameEnded = true;
         this.score.maxNoDmgStreak = Math.max(this.score.maxNoDmgStreak, this.score.noDmgTime);
@@ -665,6 +667,19 @@ export default class GameScene extends Phaser.Scene {
           score: this.score, battleScore, battleRelics: [...this.battleRelics],
         });
       }
+      return;
+    }
+
+    // ---- 清理阶段：仅允许移动、捡取、开箱，禁止战斗 ----
+    if (this.dungeonPhase === 'cleanup') {
+      this._updateCleanupMovement();
+      this.updateSpiritStones();
+      this.updateHerbDrops();
+      this.chestSystem.updateChests();
+      this.updateHPHUD();
+      this.drawHPBar();
+      this.updateMPHUD();
+      this.drawMPBar();
       return;
     }
 
@@ -769,6 +784,37 @@ export default class GameScene extends Phaser.Scene {
     this.updateRelicHUD();
   }
 
+  // ==================== 清理阶段专用移动（无战斗） ====================
+  _updateCleanupMovement() {
+    const onGround = this.player.body.blocked.down || this.player.body.touching.down;
+    const mc = this.mobileControls;
+    const leftDown = this.cursors.left.isDown || this.keyA.isDown || (mc && mc.leftHeld);
+    const rightDown = this.cursors.right.isDown || this.keyD.isDown || (mc && mc.rightHeld);
+
+    if (leftDown && !rightDown) {
+      this.player.setVelocityX(-this.moveSpeed);
+      this.player.setFlipX(true);
+    } else if (rightDown && !leftDown) {
+      this.player.setVelocityX(this.moveSpeed);
+      this.player.setFlipX(false);
+    } else {
+      this.player.setVelocityX(0);
+    }
+
+    const upDown = this.cursors.up.isDown || this.keyW.isDown || (mc && mc.jumpHeld);
+    if (upDown && onGround) {
+      this.player.setVelocityY(this.jumpForce);
+    }
+
+    // 玩家ID文字跟随
+    if (this.playerIdText && this.playerIdText.active) {
+      this.playerIdText.setPosition(
+        this.player.x - this.playerIdText.width / 2,
+        this.player.y - 45
+      );
+    }
+  }
+
   // ==================== 阶段转换 ====================
   checkPhaseComplete() {
     if (this.phaseTransitioning) return;
@@ -802,22 +848,89 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  // ==================== 通关结算 ====================
+  // ==================== 通关结算（清理阶段） ====================
   dungeonClear() {
-    this.dungeonPhase = 'clear';
+    this.dungeonPhase = 'cleanup';
     this.gameEnded = true;
     this._phaseHudText.setText('').setAlpha(0);
     this._destroyBossHPBar();
 
     // 停止所有敌人移动
     for (const e of this.enemies) {
-      if (e && e.sprite && e.sprite.body) e.sprite.setVelocityX(0);
+      if (e && e.sprite && e.sprite.body) {
+        e.sprite.setVelocity(0, 0);
+        if (e.sprite.body) e.sprite.body.enable = false;
+      }
     }
 
     // 显示通关文字
     this.tweens.add({ targets: this.clearText, alpha: 1, duration: 1000 });
 
-    this.time.delayedCall(2000, () => {
+    // 倒计时提示
+    this.cleanupText = this.add.text(WIDTH / 2, 60, '打扫战场  10s', {
+      fontSize: '22px', color: '#ffcc00', fontFamily: FONT, fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(500);
+
+    this.cleanupTimer = 10;
+    this.cleanupEvent = this.time.addEvent({
+      delay: 1000, repeat: 9,
+      callback: () => {
+        this.cleanupTimer--;
+        if (this.cleanupTimer > 0) {
+          if (this.cleanupText && this.cleanupText.active) {
+            this.cleanupText.setText(`打扫战场  ${this.cleanupTimer}s`);
+          }
+        } else {
+          if (this.cleanupText && this.cleanupText.active) {
+            this.cleanupText.setText('战场清理完毕！');
+          }
+          this.time.delayedCall(800, () => this.endDungeon());
+        }
+      },
+    });
+  }
+
+  endDungeon() {
+    // 地面未捡灵石自动归入存档
+    const uncollected = this.groundLingshi.filter(s => s && s.active).length;
+    if (uncollected > 0) {
+      this.spiritStoneCount += uncollected;
+      this.spiritText.setText(`灵石: ${this.spiritStoneCount}`);
+      const msg = this.add.text(WIDTH / 2, HEIGHT / 2, `自动回收灵石 ×${uncollected}`, {
+        fontSize: '18px', color: '#ffcc00', fontFamily: FONT, fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(600);
+      // 销毁地面灵石
+      for (const s of this.groundLingshi) {
+        if (s && s.active) s.destroy();
+      }
+      this.groundLingshi = [];
+    }
+
+    // 未开宝箱直接销毁
+    if (this.chestSystem) {
+      const unclaimed = this.chestSystem.getUnclaimedCount();
+      this.chestSystem.destroyAllChests();
+      if (unclaimed > 0) {
+        this.add.text(WIDTH / 2, HEIGHT / 2 + 40, `${unclaimed}个宝箱未开启，已消散`, {
+          fontSize: '14px', color: '#888888', fontFamily: FONT,
+          stroke: '#000000', strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(600);
+      }
+    }
+
+    // 1.5秒后跳转结算
+    this.time.delayedCall(1500, () => {
+      // 灵石写入存档
+      const save = this.registry.get('currentSave');
+      const slotId = this.registry.get('currentSlotId');
+      if (save) {
+        save.lingshi = (save.lingshi || 0) + this.spiritStoneCount;
+        SaveManager.save(slotId, save);
+        this.registry.set('currentSave', save);
+      }
+
       this.score.maxNoDmgStreak = Math.max(this.score.maxNoDmgStreak, this.score.noDmgTime);
       this.score.totalDmgDealt = this._gameData.totalDmgDealt;
       this.scoreSystem.finishRun();
@@ -1047,6 +1160,7 @@ export default class GameScene extends Phaser.Scene {
         const stone = this.add.circle(sx, sy, 6, 0xffd700);
         stone.setDepth(10);
         this.spiritStoneDrops.push({ sprite: stone });
+        this.groundLingshi.push(stone);
       }
       // 掉落1个草药
       const herb = this.add.circle(bx + 20, by - 10, 5, 0x44cc44);
@@ -1066,6 +1180,7 @@ export default class GameScene extends Phaser.Scene {
         const stone = this.add.circle(enemy.sprite.x, enemy.sprite.y, 6, 0xffd700);
         stone.setDepth(10);
         this.spiritStoneDrops.push({ sprite: stone });
+        this.groundLingshi.push(stone);
       }
       // 宝箱掉落（25%概率）
       if (Math.random() < 0.25 && enemy.sprite) {
@@ -1474,6 +1589,8 @@ export default class GameScene extends Phaser.Scene {
         this.spiritStoneDrops.splice(i, 1);
       }
     }
+    // 地面灵石追踪（战后自动回收用）
+    this.groundLingshi = this.groundLingshi.filter(s => s && s.active);
   }
 
   // ==================== 草药拾取 ====================

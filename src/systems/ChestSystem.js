@@ -200,4 +200,21 @@ export default class ChestSystem {
       this.game.relicSelectionEls = null;
     }
   }
+
+  // ==================== 战场清理 ====================
+  /** 销毁地面上所有未开启的宝箱（不给词条） */
+  destroyAllChests() {
+    for (const chest of this.game.chests) {
+      if (chest && !chest.opened) {
+        if (chest.gfx) chest.gfx.destroy();
+        if (chest.hintText) chest.hintText.destroy();
+      }
+    }
+    this.game.chests = [];
+  }
+
+  /** 获取未开启的宝箱数量 */
+  getUnclaimedCount() {
+    return this.game.chests.filter(c => c && !c.opened).length;
+  }
 }

@@ -39,14 +39,8 @@ export default class HallScene extends Phaser.Scene {
       fontStyle: 'bold',
     });
 
-    // ---- 右上角货币（单行：仙玉在前，灵石在后） ----
-    this.currencyLine = this.add.text(WIDTH - 20, 20, '', {
-      fontSize: '18px', color: '#ffffff',
-      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
-    }).setOrigin(1, 0);
-
-    // ---- 右上角境界（货币下方） ----
-    this.realmText = this.add.text(WIDTH - 20, 42, '', {
+    // ---- 右上角境界 ----
+    this.realmText = this.add.text(WIDTH - 20, 20, '', {
       fontSize: '16px', color: '#44ccff',
       fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
     }).setOrigin(1, 0);
@@ -166,8 +160,6 @@ export default class HallScene extends Phaser.Scene {
   refreshUI() {
     const c = this.save.cultivation || { points: 0, tixiu: 0, jianxiu: 0, shenshi: 0, tendencies: { tixiu: 0, jianxiu: 0, shenshi: 0 } };
 
-    // 货币（单行：仙玉在前，灵石在后）
-    this.currencyLine.setText(`◇ 仙玉：${this.save.xianyu || 0}      ◈ 灵石：${this.save.lingshi}`);
     // 境界
     this.realmText.setText(`境界：${getRealmName(this.save.majorRealmIndex, this.save.layer)}`);
     // 战绩

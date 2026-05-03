@@ -75,6 +75,11 @@ export default class BagScene extends Phaser.Scene {
       fontFamily: FONT, fontStyle: 'bold',
     }).setOrigin(0.5);
 
+    // ---- 货币显示（顶部标题下方居中） ----
+    this.currencyText = this.add.text(WIDTH / 2, 44, this._formatCurrency(), {
+      fontSize: '15px', fontFamily: FONT,
+    }).setOrigin(0.5);
+
     // ---- 容量指示（右上） ----
     this.capacityText = this.add.text(WIDTH - 20, 22, '', {
       fontSize: '14px', color: '#666677', fontFamily: FONT,
@@ -333,6 +338,12 @@ export default class BagScene extends Phaser.Scene {
       y: HEIGHT - 90, duration: 1500, delay: 100,
       onComplete: () => t.destroy(),
     });
+  }
+
+  _formatCurrency() {
+    const xianyu = this.save.xianyu || 0;
+    const lingshi = this.save.lingshi || 0;
+    return `◇ 仙玉：${xianyu}      ◈ 灵石：${lingshi}`;
   }
 
   _showAutoSaveHint() {
