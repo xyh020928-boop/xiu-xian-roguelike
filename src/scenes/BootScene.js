@@ -15,9 +15,12 @@ export default class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 第一版无需加载资源，短暂停留后跳转菜单
+    // 初始化全局存档状态
+    this.registry.set('currentSave', null);
+    this.registry.set('currentSlotId', -1);
+
     this.time.delayedCall(500, () => {
-      this.scene.start('MenuScene');
+      this.scene.start('SaveSelectScene');
     });
   }
 }

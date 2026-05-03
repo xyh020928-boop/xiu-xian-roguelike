@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, REALMS, REALM_SWORD_CONFIG, getMajorRealmName } from '../config.js';
-import { loadSave } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
 export default class GameScene extends Phaser.Scene {
@@ -128,8 +128,24 @@ export default class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-ESC', () => {
       this.pauseMenu.toggle();
     });
+    // 自动保存（30秒）
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000,
+      loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
     this.events.on('shutdown', () => {
       this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
       if (this.playerIdText) { this.playerIdText.destroy(); this.playerIdText = null; }
     });
 
@@ -177,7 +193,9 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setAlpha(0);
 
     // ============ 存档 & 属性 ============
-    const save = loadSave();
+    const save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
+    this.sessionTime = 0;
     this.playerMaxHP = 100 + save.upgrades.maxHp * 20;
     this.playerHP = this.playerMaxHP;
     this.playerAtk = 10 + save.upgrades.atk * 3;
@@ -266,6 +284,9 @@ export default class GameScene extends Phaser.Scene {
   update(time, delta) {
     if (this.pauseMenu && this.pauseMenu.visible) return;
     if (this.gameEnded) return;
+
+    // 游玩时长累计
+    this.sessionTime = (this.sessionTime || 0) + delta / 1000;
 
     if (this.isDead) {
       if (time - this.deathTime > 2000) {
@@ -662,5 +683,19 @@ export default class GameScene extends Phaser.Scene {
       this.mpBarFg.fillStyle(barColor);
       this.mpBarFg.fillRect(barX, barY, Math.floor(barW * ratio), barH);
     }
+  }
+
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint,
+      alpha: 0,
+      delay: 2000,
+      duration: 500,
+      onComplete: () => hint.destroy(),
+    });
   }
 }

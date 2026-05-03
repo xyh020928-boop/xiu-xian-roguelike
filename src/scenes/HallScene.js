@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, getRealmName } from '../config.js';
-import { loadSave, saveSave, UPGRADE_CONFIG, upgradeCost } from '../utils/helpers.js';
+import { UPGRADE_CONFIG, upgradeCost } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
 export default class HallScene extends Phaser.Scene {
@@ -16,7 +17,8 @@ export default class HallScene extends Phaser.Scene {
 
   create() {
     // 读取存档
-    this.save = loadSave();
+    this.save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
 
     // ---- 背景星空 ----
     this.cameras.main.setBackgroundColor('#1a0a2e');
@@ -62,7 +64,7 @@ export default class HallScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     testZone.on('pointerdown', () => {
       this.save.xianyu = (this.save.xianyu || 0) + 10;
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
       this.refreshUI();
     });
 
@@ -101,7 +103,26 @@ export default class HallScene extends Phaser.Scene {
     this.pauseMenu = new PauseMenu(this, { sceneName: '修炼大厅' });
     this.pauseMenu.create();
     this.input.keyboard.on('keydown-ESC', () => { this.pauseMenu.toggle(); });
-    this.events.on('shutdown', () => { this.pauseMenu.destroy(); });
+
+    // 自动保存（30秒）
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000,
+      loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
+    this.events.on('shutdown', () => {
+      this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
+    });
   }
 
   // ==================== 创建升级按钮 ====================
@@ -197,7 +218,7 @@ export default class HallScene extends Phaser.Scene {
     // 扣除灵石并升级
     this.save.lingshi -= cost;
     this.save.upgrades[key]++;
-    saveSave(this.save);
+    SaveManager.save(this.slotId, this.save);
     this.refreshUI();
   }
 
@@ -342,6 +363,21 @@ export default class HallScene extends Phaser.Scene {
     caveZone.on('pointerout', () => drawCave(0x1a1a3e, 0x4466cc));
     caveZone.on('pointerdown', () => {
       this.scene.start('CaveScene');
+    });
+  }
+
+  // ==================== 自动保存提示 ====================
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint,
+      alpha: 0,
+      delay: 2000,
+      duration: 500,
+      onComplete: () => hint.destroy(),
     });
   }
 }

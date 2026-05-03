@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, getRealmName } from '../config.js';
-import { loadSave, checkBreakthrough } from '../utils/helpers.js';
+import { checkBreakthrough } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
 export default class CaveScene extends Phaser.Scene {
@@ -10,7 +11,8 @@ export default class CaveScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#0d0d1a');
-    this.save = loadSave();
+    this.save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
     this._breakthroughShowing = false;
 
     // ============ 背景光点 ============
@@ -37,11 +39,28 @@ export default class CaveScene extends Phaser.Scene {
 
     this.refreshAll();
 
+    // 自动保存（30秒）
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000, loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
     // 暂停菜单
     this.pauseMenu = new PauseMenu(this, { sceneName: '洞府' });
     this.pauseMenu.create();
     this.input.keyboard.on('keydown-ESC', () => { this.pauseMenu.toggle(); });
-    this.events.on('shutdown', () => { this.pauseMenu.destroy(); });
+    this.events.on('shutdown', () => {
+      this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
+    });
   }
 
   // ==================== 顶部栏 ====================
@@ -174,7 +193,18 @@ export default class CaveScene extends Phaser.Scene {
     this.realmText.setText(`境界：${getRealmName(this.save.majorRealmIndex, this.save.layer)}`);
     this.drawXiuweiBar();
     this.xiuweiText.setText(`修为：${this.save.xiuwei} / ${this.save.xiuweiMax}`);
-    checkBreakthrough(this, this.save, () => this.refreshAll());
+    checkBreakthrough(this, this.save, this.slotId, () => this.refreshAll());
+  }
+
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint, alpha: 0, delay: 2000, duration: 500,
+      onComplete: () => hint.destroy(),
+    });
   }
 
   drawXiuweiBar() {

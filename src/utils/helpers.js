@@ -1,105 +1,26 @@
-// localStorage 存档工具
+// 背包工具、升级配置、境界突破
 import {
   MAJOR_REALMS, WIDTH, HEIGHT,
   getLayerXPRequired, getRealmName,
 } from '../config.js';
+import SaveManager from './SaveManager.js';
 
-const SAVE_KEY = 'wudao_save';
-
-/** 默认存档结构 */
+/** 默认存档结构（仅供兼容迁移使用） */
 export function getDefaultSave() {
   return {
     lingshi: 0,
-    xianyu: 0,             // 仙玉（抽卡专用）
-    majorRealmIndex: 0,   // 大境界索引（0=炼气）
-    layer: 1,              // 当前小层（1-9）
-    peakUnlocked: false,   // 九层大圆满后可突破大境界
+    xianyu: 0,
+    majorRealmIndex: 0,
+    layer: 1,
+    peakUnlocked: false,
     upgrades: { maxHp: 0, atk: 0, mpMax: 0 },
     totalRuns: 0,
     totalKills: 0,
-    xiuwei: 0,             // 当前层修为
-    xiuweiMax: getLayerXPRequired(0, 1),  // 当前层所需修为
+    xiuwei: 0,
+    xiuweiMax: getLayerXPRequired(0, 1),
     lastCaveTime: 0,
-    bag: {                 // 背包系统（格子制，60格）
-      slots: Array(60).fill(null),
-    },
+    bag: { slots: Array(60).fill(null) },
   };
-}
-
-/** 读取存档，缺失字段用默认值补齐。兼容旧版 realmIndex → majorRealmIndex */
-export function loadSave() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const defaults = getDefaultSave();
-
-      // 兼容旧存档：realmIndex → majorRealmIndex + layer=1
-      if (parsed.realmIndex !== undefined && parsed.majorRealmIndex === undefined) {
-        parsed.majorRealmIndex = parsed.realmIndex;
-        parsed.layer = 1;
-        delete parsed.realmIndex;
-      }
-
-      // 兼容旧背包（分类数组 → 格子制 / 扩容到60格）
-      if (parsed.bag && !Array.isArray(parsed.bag.slots)) {
-        const oldBag = parsed.bag;
-        const slots = Array(60).fill(null);
-        const now = Date.now();
-        let slotIdx = 0;
-        for (const cat of ['dan', 'fabao', 'tiancai', 'gongfa']) {
-          const items = oldBag[cat] || [];
-          for (const item of items) {
-            if (slotIdx >= 60) break;
-            slots[slotIdx] = {
-              itemId: item.id, itemData: item, count: item.count || 1,
-              poolKey: cat, obtainedAt: now - (60 - slotIdx) * 1000,
-            };
-            slotIdx++;
-          }
-        }
-        parsed.bag = { slots };
-      } else if (parsed.bag && Array.isArray(parsed.bag.slots) && parsed.bag.slots.length !== 60) {
-        // 旧格数 → 60格扩容/缩容
-        const oldSlots = parsed.bag.slots;
-        const slots = Array(60).fill(null);
-        for (let i = 0; i < Math.min(oldSlots.length, 60); i++) {
-          slots[i] = oldSlots[i];
-          // 补充缺失字段
-          if (slots[i] && !slots[i].obtainedAt) slots[i].obtainedAt = Date.now() - (60 - i) * 1000;
-          if (slots[i] && !slots[i].poolKey && slots[i].itemId) {
-            if (slots[i].itemId.startsWith('dan_')) slots[i].poolKey = 'dan';
-            else if (slots[i].itemId.startsWith('fabao_')) slots[i].poolKey = 'fabao';
-            else if (slots[i].itemId.startsWith('tiancai_')) slots[i].poolKey = 'tiancai';
-            else if (slots[i].itemId.startsWith('gongfa_')) slots[i].poolKey = 'gongfa';
-          }
-        }
-        parsed.bag = { slots };
-      }
-
-      // 动态补齐 xiuweiMax
-      if (!parsed.xiuweiMax) {
-        parsed.xiuweiMax = getLayerXPRequired(
-          parsed.majorRealmIndex || 0, parsed.layer || 1
-        );
-      }
-
-      return {
-        ...defaults,
-        ...parsed,
-        upgrades: { ...defaults.upgrades, ...(parsed.upgrades || {}) },
-        bag: { ...defaults.bag, ...(parsed.bag || {}) },
-      };
-    }
-  } catch (e) { /* ignore */ }
-  return getDefaultSave();
-}
-
-/** 写入存档 */
-export function saveSave(data) {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-  } catch (e) { /* ignore */ }
 }
 
 /**
@@ -159,11 +80,12 @@ export function upgradeCost(statKey, level) {
 /**
  * 检查修为是否满，满则自动晋级小层或触发大境界突破提示
  * @param {Phaser.Scene} scene
- * @param {object} save
+ * @param {object} save - 存档对象（registry中的引用）
+ * @param {number} slotId - 存档槽位ID
  * @param {Function} refreshFn - 晋级后刷新 UI
  * @returns {boolean} 是否触发了晋级/突破
  */
-export function checkBreakthrough(scene, save, refreshFn) {
+export function checkBreakthrough(scene, save, slotId, refreshFn) {
   if (scene._breakthroughShowing) return false;
 
   // 修为未满：不触发
@@ -174,8 +96,8 @@ export function checkBreakthrough(scene, save, refreshFn) {
     save.xiuwei = save.xiuweiMax; // 封顶
     if (!save.peakUnlocked) {
       save.peakUnlocked = true;
-      saveSave(save);
-      showMajorBreakthroughPopup(scene, save, refreshFn);
+      SaveManager.save(slotId, save);
+      showMajorBreakthroughPopup(scene, save, slotId, refreshFn);
       scene._breakthroughShowing = true;
       return true;
     }
@@ -186,7 +108,7 @@ export function checkBreakthrough(scene, save, refreshFn) {
   save.layer += 1;
   save.xiuwei = 0;
   save.xiuweiMax = getLayerXPRequired(save.majorRealmIndex, save.layer);
-  saveSave(save);
+  SaveManager.save(slotId, save);
 
   showLayerUpMsg(scene, save, refreshFn);
   return true;
@@ -194,9 +116,6 @@ export function checkBreakthrough(scene, save, refreshFn) {
 
 // ==================== 小层晋级提示 ====================
 
-/**
- * 显示"晋级至X层"浮动提示，1.5 秒后消失
- */
 function showLayerUpMsg(scene, save, refreshFn) {
   const realmName = getRealmName(save.majorRealmIndex, save.layer);
   const txt = scene.add.text(WIDTH / 2, HEIGHT / 2 - 40,
@@ -227,10 +146,7 @@ function showLayerUpMsg(scene, save, refreshFn) {
 
 // ==================== 大境界突破弹窗 ====================
 
-/**
- * 九层大圆满时弹出突破大境界窗口
- */
-function showMajorBreakthroughPopup(scene, save, refreshFn) {
+function showMajorBreakthroughPopup(scene, save, slotId, refreshFn) {
   const currentRealm = getRealmName(save.majorRealmIndex, save.layer);
   const maxIdx = MAJOR_REALMS.length - 1;
 
@@ -327,7 +243,6 @@ function showMajorBreakthroughPopup(scene, save, refreshFn) {
   btn1Zone.on('pointerdown', () => {
     cleanup();
 
-    // 全屏金色闪光特效
     const flash = scene.add.graphics().setDepth(300);
     flash.fillStyle(0xffd700, 0);
     flash.fillRect(0, 0, WIDTH, HEIGHT);
@@ -341,15 +256,13 @@ function showMajorBreakthroughPopup(scene, save, refreshFn) {
       onComplete: () => {
         if (flash && flash.destroy) flash.destroy();
 
-        // 晋级
         save.majorRealmIndex++;
         save.layer = 1;
         save.xiuwei = 0;
         save.xiuweiMax = getLayerXPRequired(save.majorRealmIndex, 1);
         save.peakUnlocked = false;
-        saveSave(save);
+        SaveManager.save(slotId, save);
 
-        // 成功提示
         const newName = getRealmName(save.majorRealmIndex, save.layer);
         const congrats = scene.add.text(WIDTH / 2, HEIGHT / 2,
           `恭喜道友，突破【${newName}】！`, {

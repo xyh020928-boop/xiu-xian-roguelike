@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene.js';
+import SaveSelectScene from './scenes/SaveSelectScene.js';
 import MenuScene from './scenes/MenuScene.js';
 import HallScene from './scenes/HallScene.js';
 import GameScene from './scenes/GameScene.js';
@@ -24,7 +25,10 @@ const config = {
       debug: false,
     },
   },
-  scene: [BootScene, MenuScene, HallScene, GameScene, GameOverScene, CaveScene, MeditateScene, TetrisScene, GachaScene, BagScene],
+  dom: {
+    createContainer: true,
+  },
+  scene: [BootScene, SaveSelectScene, MenuScene, HallScene, GameScene, GameOverScene, CaveScene, MeditateScene, TetrisScene, GachaScene, BagScene],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT } from '../config.js';
-import { loadSave, saveSave } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import { GACHA_POOLS, RARITY_COLOR } from '../systems/GachaSystem.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
@@ -51,7 +51,8 @@ export default class BagScene extends Phaser.Scene {
   }
 
   create() {
-    this.save = loadSave();
+    this.save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
     if (!this.save.bag || !Array.isArray(this.save.bag.slots)) {
       this.save.bag = { slots: Array(TOTAL_SLOTS).fill(null) };
     }
@@ -102,12 +103,27 @@ export default class BagScene extends Phaser.Scene {
     // ---- 右侧预览面板 ----
     this.createPreviewPanel();
 
+    // ---- 自动保存（30秒） ----
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000, loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
     // ---- 暂停菜单 ----
     this.pauseMenu = new PauseMenu(this, { sceneName: '储物袋' });
     this.pauseMenu.create();
     this.input.keyboard.on('keydown-ESC', () => { this.pauseMenu.toggle(); });
     this.events.on('shutdown', () => {
       this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
       this._legendaryTweens.forEach(t => { if (t && t.isPlaying()) t.stop(); });
     });
   }
@@ -135,7 +151,7 @@ export default class BagScene extends Phaser.Scene {
     zone.on('pointerover', () => draw(0x2a2a3e, 0x6688cc));
     zone.on('pointerout', () => draw(0x1a1a2e, 0x4466aa));
     zone.on('pointerdown', () => {
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
       this.scene.start('HallScene');
     });
   }
@@ -619,6 +635,17 @@ export default class BagScene extends Phaser.Scene {
   _clearPreviewContent() {
     this._previewElements.forEach(el => { if (el && el.destroy) el.destroy(); });
     this._previewElements = [];
+  }
+
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint, alpha: 0, delay: 2000, duration: 500,
+      onComplete: () => hint.destroy(),
+    });
   }
 
   update() {

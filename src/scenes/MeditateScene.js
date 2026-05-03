@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, getRealmName } from '../config.js';
-import { loadSave, saveSave, checkBreakthrough } from '../utils/helpers.js';
+import { checkBreakthrough } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
 export default class MeditateScene extends Phaser.Scene {
@@ -12,7 +13,8 @@ export default class MeditateScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#080818');
 
     // 读取存档
-    this.save = loadSave();
+    this.save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
 
     // 计算离线收益
     this.calcOfflineGains();
@@ -41,11 +43,28 @@ export default class MeditateScene extends Phaser.Scene {
 
     this.refreshAll();
 
+    // 自动保存（30秒）
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000, loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
     // 暂停菜单
     this.pauseMenu = new PauseMenu(this, { sceneName: '静心修炼中' });
     this.pauseMenu.create();
     this.input.keyboard.on('keydown-ESC', () => { this.pauseMenu.toggle(); });
-    this.events.on('shutdown', () => { this.pauseMenu.destroy(); });
+    this.events.on('shutdown', () => {
+      this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
+    });
   }
 
   // ==================== 背景光点 ====================
@@ -236,7 +255,7 @@ export default class MeditateScene extends Phaser.Scene {
     this.tweens.killAll();
     this.time.removeAllEvents();
     this.save.lastCaveTime = Date.now();
-    saveSave(this.save);
+    SaveManager.save(this.slotId, this.save);
     this.scene.start('CaveScene');
   }
 
@@ -246,7 +265,7 @@ export default class MeditateScene extends Phaser.Scene {
       const gain = this.idleAccumulated - this._lastSyncedAccum;
       this.save.xiuwei += gain;
       this._lastSyncedAccum = this.idleAccumulated;
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
     }
   }
 
@@ -255,7 +274,7 @@ export default class MeditateScene extends Phaser.Scene {
     // 应用离线收益
     if (this.offlineGain > 0) {
       this.save.xiuwei += this.offlineGain;
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
 
       this.offlineGainText.setText(`离线期间获得 ${this.offlineGain} 修为`);
       this.offlineGainText.setAlpha(1);
@@ -276,7 +295,7 @@ export default class MeditateScene extends Phaser.Scene {
     this.xiuweiTextTop.setText(`修为：${this.save.xiuwei} / ${this.save.xiuweiMax}`);
 
     // 检查突破
-    checkBreakthrough(this, this.save, (type) => { this.refreshAll(); if (type === 'layer_up') this._animateBarRefill(); });
+    checkBreakthrough(this, this.save, this.slotId, (type) => { this.refreshAll(); if (type === 'layer_up') this._animateBarRefill(); });
   }
 
   drawXiuweiBar() {
@@ -336,14 +355,25 @@ export default class MeditateScene extends Phaser.Scene {
       const gain = this.idleAccumulated - this._lastSyncedAccum;
       this.save.xiuwei += gain;
       this._lastSyncedAccum = this.idleAccumulated;
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
 
       // 更新HUD
       this.xiuweiTextTop.setText(`修为：${this.save.xiuwei} / ${this.save.xiuweiMax}`);
       this.drawXiuweiBar();
 
       // 检查突破
-      checkBreakthrough(this, this.save, (type) => { this.refreshAll(); if (type === 'layer_up') this._animateBarRefill(); });
+      checkBreakthrough(this, this.save, this.slotId, (type) => { this.refreshAll(); if (type === 'layer_up') this._animateBarRefill(); });
     }
+  }
+
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint, alpha: 0, delay: 2000, duration: 500,
+      onComplete: () => hint.destroy(),
+    });
   }
 }

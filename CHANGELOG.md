@@ -1,4 +1,20 @@
 # 问道 · 更新日志
+## [v0.4.0] - 2026-05-03
+### 新增
+- 多存档系统：支持4个独立存档槽位，槽位数据单独存储
+- 存档选择界面（SaveSelectScene）：显示角色名、境界、游玩时长、最后保存时间
+- 新建存档时可自定义角色道号（最多8字），Phaser DOM输入弹窗
+- 自动保存：所有主要场景每30秒自动保存，右下角显示"✦ 已自动保存"提示
+- 游玩时长追踪：GameScene中累计游玩时间，自动保存时写入存档
+- SaveManager工具类：统一管理所有存档操作（load/save/delete/格式化）
+- 兼容旧版单存档（localStorage['wudao_save']）自动迁移到槽位0
+### 改动
+- 存档数据通过 Phaser registry 全局传递，不再各场景单独读写 localStorage
+- 游戏启动流程：BootScene → SaveSelectScene → MenuScene（新增存档选择环节）
+- helpers.js 移除 loadSave/saveSave，checkBreakthrough 增加 slotId 参数
+- 所有场景导入从 {loadSave,saveSave} 迁移到 registry + SaveManager
+- HallScene / CaveScene / MeditateScene / TetrisScene / GachaScene / BagScene 均加入自动保存
+---
 ## [v0.3.5] - 2026-05-03
 ### 新增
 - 背包三栏布局：左侧分类标签 + 中间6×10=60格正方形网格 + 右侧道具详情预览面板

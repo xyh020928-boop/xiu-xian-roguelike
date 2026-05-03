@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT, CURRENCY } from '../config.js';
-import { loadSave, saveSave, addToBag } from '../utils/helpers.js';
+import { addToBag } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 import { GACHA_POOLS, drawCard, RARITY_COLOR, applyCardEffect } from '../systems/GachaSystem.js';
 import PauseMenu from '../ui/PauseMenu.js';
 
@@ -10,7 +11,8 @@ export default class GachaScene extends Phaser.Scene {
   }
 
   create() {
-    this.save = loadSave();
+    this.save = this.registry.get('currentSave');
+    this.slotId = this.registry.get('currentSlotId');
 
     // ---- 背景 ----
     this.cameras.main.setBackgroundColor('#0d0d1a');
@@ -56,11 +58,28 @@ export default class GachaScene extends Phaser.Scene {
     // 刷新HUD
     this.refreshUI();
 
+    // 自动保存（30秒）
+    this.autoSaveTimer = this.time.addEvent({
+      delay: 30000, loop: true,
+      callback: () => {
+        const s = this.registry.get('currentSave');
+        const sid = this.registry.get('currentSlotId');
+        if (s && sid >= 0) {
+          s.playtime = (s.playtime || 0) + 30;
+          SaveManager.save(sid, s);
+          this.showAutoSaveHint();
+        }
+      },
+    });
+
     // 暂停菜单
     this.pauseMenu = new PauseMenu(this, { sceneName: '机缘阁' });
     this.pauseMenu.create();
     this.input.keyboard.on('keydown-ESC', () => { this.pauseMenu.toggle(); });
-    this.events.on('shutdown', () => { this.pauseMenu.destroy(); });
+    this.events.on('shutdown', () => {
+      this.pauseMenu.destroy();
+      if (this.autoSaveTimer) this.autoSaveTimer.remove();
+    });
   }
 
   // ==================== 返回大厅按钮 ====================
@@ -85,7 +104,7 @@ export default class GachaScene extends Phaser.Scene {
     zone.on('pointerover', () => draw(0x2a2a3e, 0x6688cc));
     zone.on('pointerout', () => draw(0x1a1a2e, 0x4466aa));
     zone.on('pointerdown', () => {
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
       this.scene.start('HallScene');
     });
   }
@@ -206,7 +225,7 @@ export default class GachaScene extends Phaser.Scene {
 
     // 扣除仙玉
     this.save.xianyu -= cost;
-    saveSave(this.save);
+    SaveManager.save(this.slotId, this.save);
     this.refreshUI();
 
     // 抽卡
@@ -220,11 +239,11 @@ export default class GachaScene extends Phaser.Scene {
       this._showBagFullWarning();
       // 退还仙玉
       this.save.xianyu += cost;
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
       this.refreshUI();
       return;
     }
-    saveSave(this.save);
+    SaveManager.save(this.slotId, this.save);
 
     // 播放动画
     this.showDrawAnimation(card, poolKey);
@@ -360,7 +379,7 @@ export default class GachaScene extends Phaser.Scene {
     collectZone.on('pointerout', () => drawCollectBtn(0x223322, borderHex));
     collectZone.on('pointerdown', () => {
       const msg = applyCardEffect(card, this.save);
-      saveSave(this.save);
+      SaveManager.save(this.slotId, this.save);
       this._collectCard(msg);
     });
 
@@ -508,6 +527,18 @@ export default class GachaScene extends Phaser.Scene {
       `灵石：${this.save.lingshi} ${CURRENCY.lingshi.icon}`,
       `仙玉：${this.save.xianyu} ${CURRENCY.xianyu.icon}`,
     ].join('    '));
+  }
+
+  // ==================== 自动保存提示 ====================
+  showAutoSaveHint() {
+    const hint = this.add.text(WIDTH - 20, HEIGHT - 20, '✦ 已自动保存', {
+      fontSize: '12px', color: '#aaaaaa',
+      fontFamily: '"Microsoft YaHei","SimHei",sans-serif',
+    }).setOrigin(1, 1).setDepth(2000);
+    this.tweens.add({
+      targets: hint, alpha: 0, delay: 2000, duration: 500,
+      onComplete: () => hint.destroy(),
+    });
   }
 
   // ==================== 更新循环 ====================

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { WIDTH, HEIGHT } from '../config.js';
-import { loadSave, saveSave } from '../utils/helpers.js';
+import SaveManager from '../utils/SaveManager.js';
 
 export default class GameOverScene extends Phaser.Scene {
   constructor() {
@@ -15,11 +15,12 @@ export default class GameOverScene extends Phaser.Scene {
 
   create() {
     // ---- 累加数据写入存档 ----
-    const save = loadSave();
+    const save = this.registry.get('currentSave');
+    const slotId = this.registry.get('currentSlotId');
     save.lingshi += this.earnedLingshi;
     save.totalRuns++;
     save.totalKills += this.runKills;
-    saveSave(save);
+    SaveManager.save(slotId, save);
 
     // ---- 界面 ----
     const isClear = this.result === 'clear';
