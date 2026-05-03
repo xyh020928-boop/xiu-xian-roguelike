@@ -261,7 +261,7 @@ export default class GameOverScene extends Phaser.Scene {
         rarity: relic.rarity,
         desc: relic.desc,
         type: 'relic',
-        poolKey: 'battle_relic',
+        poolKey: 'jiyuan',
       };
       addJiYuanToBag(save, item);
     }

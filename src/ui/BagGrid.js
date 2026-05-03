@@ -56,6 +56,15 @@ export default class BagGrid {
 
   // ==================== 计算展示列表 ====================
   getDisplaySlots(category) {
+    // 'all' 标签页：合并主背包 + 机缘背包
+    if (category === 'all') {
+      const mainFilled = this.bag.save.bag.slots.filter(s => s !== null);
+      const jiYuanFilled = this.bag.save.jiYuanBag.slots.filter(s => s !== null);
+      const filled = [...mainFilled, ...jiYuanFilled];
+      filled.sort((a, b) => (a.obtainedAt || 0) - (b.obtainedAt || 0));
+      const empties = Array(TOTAL_SLOTS - filled.length).fill(null);
+      return [...filled, ...empties];
+    }
     // 机缘标签使用独立背包
     if (category === 'jiyuan') {
       const slots = this.bag.save.jiYuanBag.slots;
@@ -67,9 +76,7 @@ export default class BagGrid {
 
     const slots = this.bag.save.bag.slots;
     let filled = slots.filter(s => s !== null);
-    if (category !== 'all') {
-      filled = filled.filter(s => s.poolKey === category);
-    }
+    filled = filled.filter(s => s.poolKey === category);
     filled.sort((a, b) => (a.obtainedAt || 0) - (b.obtainedAt || 0));
     const empties = Array(TOTAL_SLOTS - filled.length).fill(null);
     return [...filled, ...empties];
@@ -88,9 +95,13 @@ export default class BagGrid {
     this.bag.elements.countTexts = [];
     if (this.bag.elements.highlightGfx) { this.bag.elements.highlightGfx.destroy(); this.bag.elements.highlightGfx = null; }
 
+    const isAll = this.bag.state.currentCat === 'all';
     const isJiYuan = this.bag.state.currentCat === 'jiyuan';
-    const bagSlots = isJiYuan ? this.bag.save.jiYuanBag.slots : this.bag.save.bag.slots;
-    const filledCount = bagSlots.filter(s => s !== null).length;
+    // 'all' tab: 容量统计两个背包
+    const mainFilled = this.bag.save.bag.slots.filter(s => s !== null).length;
+    const jiYuanFilled = this.bag.save.jiYuanBag.slots.filter(s => s !== null).length;
+    const filledCount = isAll ? (mainFilled + jiYuanFilled)
+      : isJiYuan ? jiYuanFilled : mainFilled;
 
     if (filledCount >= TOTAL_SLOTS) {
       this.bag.elements.capacityText.setText(`${filledCount}/${TOTAL_SLOTS}`).setColor('#ff4444');
