@@ -7,6 +7,7 @@ import PauseMenu from '../ui/PauseMenu.js';
 import ChestSystem from '../systems/ChestSystem.js';
 import ScoreSystem from '../systems/ScoreSystem.js';
 import EffectSystem from '../systems/EffectSystem.js';
+import MobileControls from '../ui/MobileControls.js';
 
 const FONT = '"Microsoft YaHei","SimHei",sans-serif';
 
@@ -175,6 +176,7 @@ export default class GameScene extends Phaser.Scene {
       this.pauseMenu.destroy();
       if (this.autoSaveTimer) this.autoSaveTimer.remove();
       if (this.playerIdText) { this.playerIdText.destroy(); this.playerIdText = null; }
+      if (this.mobileControls) this.mobileControls.destroy();
     });
 
     // ============ HUD ============
@@ -282,6 +284,9 @@ export default class GameScene extends Phaser.Scene {
     this.keyF = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
 
     this.physics.world.gravity.y = 600;
+
+    // ============ 手机虚拟按键 ============
+    this.mobileControls = new MobileControls(this);
 
     // ============ 系统模块初始化 ============
     this._gameData = {
@@ -683,23 +688,46 @@ export default class GameScene extends Phaser.Scene {
 
     const onGround = this.player.body.blocked.down || this.player.body.touching.down;
 
-    // ---- 移动 ----
+    // ---- 移动（含手机虚拟按键） ----
     let effectiveSpeed = this.moveSpeed;
     const moveMult = this.effectSystem.getMoveSpeedMultiplier();
     effectiveSpeed *= moveMult;
-    if (this.cursors.left.isDown || this.keyA.isDown) {
+    const mc = this.mobileControls;
+    const leftDown = this.cursors.left.isDown || this.keyA.isDown || (mc && mc.leftHeld);
+    const rightDown = this.cursors.right.isDown || this.keyD.isDown || (mc && mc.rightHeld);
+    if (leftDown && !rightDown) {
       this.player.setVelocityX(-effectiveSpeed);
       this.player.setFlipX(true);
-    } else if (this.cursors.right.isDown || this.keyD.isDown) {
+    } else if (rightDown && !leftDown) {
       this.player.setVelocityX(effectiveSpeed);
       this.player.setFlipX(false);
     } else {
       this.player.setVelocityX(0);
     }
 
-    // ---- 跳跃 ----
-    if ((this.cursors.up.isDown || this.keyW.isDown) && onGround) {
+    // ---- 跳跃（含手机虚拟按键） ----
+    const upDown = this.cursors.up.isDown || this.keyW.isDown || (mc && mc.jumpHeld);
+    if (upDown && onGround) {
       this.player.setVelocityY(this.jumpForce);
+    }
+
+    // ---- 手机动作按钮（攻/剑） ----
+    if (mc && mc.enabled) {
+      const now = this.time.now;
+      if (mc.consumeMelee() && now - this.lastMeleeTime > this.meleeCooldown && !this.isDead) {
+        this.performMelee();
+        this.lastMeleeTime = now;
+      }
+      if (mc.consumeRanged() && now - this.lastRangedTime > this.rangedCooldown && !this.isDead) {
+        const cfg = REALM_SWORD_CONFIG[this.currentRealm];
+        if (this.currentMP >= cfg.mpCost) {
+          this.currentMP -= cfg.mpCost;
+          this.performRanged();
+          this.lastRangedTime = now;
+        } else {
+          this.mpFlashTime = now;
+        }
+      }
     }
 
     // ---- 境界切换 ----
